@@ -64,7 +64,7 @@ class AssistantBrain:
                         if content:
                             text_parts.append(content)
                             streamed_text += content
-                            if not json_candidate and streamed_text.lstrip().startswith("{"):
+                            if not json_candidate and "{" in streamed_text:
                                 json_candidate = True
                             if on_token and not json_candidate:
                                 on_token(content)

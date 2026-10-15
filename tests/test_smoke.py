@@ -28,6 +28,10 @@ class SmokeTests(unittest.TestCase):
         self.assertIsNotNone(call)
         self.assertEqual(call["name"], "estado_hardware")
 
+    def test_local_text_tool_call_can_have_introductory_text(self) -> None:
+        call = AssistantBrain._parse_text_tool_call('Voy a consultar: {"name":"estado_hardware","arguments":{}}')
+        self.assertEqual(call["name"], "estado_hardware")
+
     def test_schema_wrapped_arguments_are_unwrapped(self) -> None:
         self.assertEqual(registry._unwrap_schema_values({"consulta": {"type": "string", "value": "RAM"}}), {"consulta": "RAM"})
 
