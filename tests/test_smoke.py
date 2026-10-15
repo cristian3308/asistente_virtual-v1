@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from config import settings
 from core import self_coder
-from core.brain import AssistantBrain
+from core.router import ModelRouter
 from tools import registry
 from tools import browser_tools, dev_sec_tools
 from tools.custom_skills import abrir_aplicacion as app_skill
@@ -24,10 +24,30 @@ class SmokeTests(unittest.TestCase):
         messages = [{"role": "system", "content": "reglas " * 30}]
         messages.extend({"role": "assistant", "content": f"antiguo {index} " * 100} for index in range(12))
         messages.append({"role": "user", "content": "petición actual " * 20})
-        trimmed = AssistantBrain._context_for_model(messages)
+        trimmed = ModelRouter._trim_local_messages(messages, 1400)
         self.assertEqual(trimmed[0]["role"], "system")
         self.assertEqual(trimmed[-1]["content"], messages[-1]["content"])
-        self.assertLessEqual(sum(AssistantBrain._estimate_tokens(message) for message in trimmed), 1400)
+        self.assertLessEqual(sum(ModelRouter._estimate_tokens(message) for message in trimmed), 1400)
+
+    def test_local_context_keeps_parallel_tool_calls_as_one_block(self) -> None:
+        messages = [
+            {"role": "system", "content": "rules"},
+            {"role": "user", "content": "old request"},
+            {"role": "assistant", "content": None, "tool_calls": [{"id": "a"}, {"id": "b"}]},
+            {"role": "tool", "tool_call_id": "a", "content": "A" * 30},
+            {"role": "tool", "tool_call_id": "b", "content": "B" * 30},
+            {"role": "user", "content": "current request"},
+        ]
+        trimmed = ModelRouter._trim_local_messages(messages, 80)
+        roles = [message["role"] for message in trimmed]
+        self.assertEqual(roles[0], "system")
+        self.assertEqual(roles[-1], "user")
+        active_tool_calls = set()
+        for index, message in enumerate(trimmed):
+            if message["role"] == "assistant":
+                active_tool_calls = {call["id"] for call in message.get("tool_calls", [])}
+            if message["role"] == "tool":
+                self.assertIn(message["tool_call_id"], active_tool_calls)
 
     def test_manifest_skills_are_loadable_and_registered(self) -> None:
         for name in ("abrir_aplicacion", "calcular_sha256"):

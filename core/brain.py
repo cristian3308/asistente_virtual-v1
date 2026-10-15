@@ -17,7 +17,6 @@ ESQUEMA_HERRAMIENTAS = TOOL_SCHEMAS
 
 
 class AssistantBrain:
-    CONTEXT_TOKEN_BUDGET = 1400
     TOOL_CONTEXT_CHAR_LIMIT = 1500
 
     def __init__(self) -> None:
@@ -49,7 +48,7 @@ class AssistantBrain:
                 streamed_text = ""
                 json_candidate = False
                 for chunk, current_motor in self.router.stream(
-                    prompt, messages=self._context_for_model(self.history), tools=TOOL_SCHEMAS, tool_choice="auto"
+                    prompt, messages=self.history, tools=TOOL_SCHEMAS, tool_choice="auto"
                 ):
                     motor = current_motor
                     for choice in getattr(chunk, "choices", []) or []:
@@ -177,34 +176,6 @@ class AssistantBrain:
                 message = {**message, "content": cls._clean_model_answer(content)}
             cleaned.append(message)
         return cleaned
-
-    @staticmethod
-    def _estimate_tokens(message: dict) -> int:
-        """Estimación conservadora para no depender del tokenizer del proveedor."""
-        content = message.get("content") or ""
-        tool_calls = message.get("tool_calls") or ""
-        return max(1, (len(str(content)) + len(str(tool_calls)) + 2) // 3)
-
-    @classmethod
-    def _context_for_model(cls, messages: list[dict], budget: int | None = None) -> list[dict]:
-        """Conserva system, la petición actual y los mensajes recientes que caben."""
-        if not messages:
-            return []
-        limit = budget or cls.CONTEXT_TOKEN_BUDGET
-        system_index = next((index for index, item in enumerate(messages) if item.get("role") == "system"), 0)
-        current_index = next((index for index in range(len(messages) - 1, -1, -1) if messages[index].get("role") == "user"), len(messages) - 1)
-        required_indices = {system_index, current_index}
-        selected_indices = set(required_indices)
-        used = sum(cls._estimate_tokens(messages[index]) for index in required_indices)
-        for index in range(len(messages) - 1, -1, -1):
-            if index in required_indices:
-                continue
-            cost = cls._estimate_tokens(messages[index])
-            if used + cost > limit:
-                continue
-            selected_indices.add(index)
-            used += cost
-        return [messages[index] for index in sorted(selected_indices)]
 
     @staticmethod
     def _show_tool_result(name: str, result: str) -> None:

@@ -1,6 +1,7 @@
 """Selección de proveedor LLM y fallback cloud/local."""
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 
 from openai import OpenAI
@@ -80,10 +81,64 @@ class ModelRouter:
         return ordered
 
     @staticmethod
+    def _estimate_tokens(message: dict) -> int:
+        content = message.get("content") or ""
+        tool_calls = message.get("tool_calls") or ""
+        return max(1, (len(str(content)) + len(str(tool_calls)) + 2) // 3)
+
+    @classmethod
+    def _trim_local_messages(cls, messages: list[dict], budget: int) -> list[dict]:
+        """Recorta por bloques válidos de conversación, sin tools huérfanos."""
+        if not messages:
+            return []
+        system = next((message for message in messages if message.get("role") == "system"), None)
+        body = [message for message in messages if message is not system]
+        blocks: list[list[dict]] = []
+        index = 0
+        while index < len(body):
+            block = [body[index]]
+            if body[index].get("role") == "assistant" and body[index].get("tool_calls"):
+                index += 1
+                while index < len(body) and body[index].get("role") == "tool":
+                    block.append(body[index])
+                    index += 1
+            else:
+                index += 1
+            blocks.append(block)
+        if not blocks:
+            return [system] if system else []
+        last_user = max((index for index, block in enumerate(blocks) if any(item.get("role") == "user" for item in block)), default=len(blocks) - 1)
+        selected_current = [blocks[last_user]]
+        used = (cls._estimate_tokens(system) if system else 0) + sum(cls._estimate_tokens(item) for item in selected_current[0])
+        for block in blocks[last_user + 1:]:
+            cost = sum(cls._estimate_tokens(item) for item in block)
+            if used + cost > budget:
+                break
+            selected_current.append(block)
+            used += cost
+        selected_history: list[list[dict]] = []
+        for block in reversed(blocks[:last_user]):
+            cost = sum(cls._estimate_tokens(item) for item in block)
+            if used + cost > budget:
+                break
+            selected_history.insert(0, block)
+            used += cost
+        selected_blocks = selected_history + selected_current
+        while selected_blocks and selected_blocks[0][0].get("role") != "user":
+            selected_blocks.pop(0)
+        result = [item for block in selected_blocks for item in block]
+        return ([system] if system else []) + result
+
+    @staticmethod
     def _payload_for(motor: Motor, kwargs: dict) -> dict:
         payload = dict(kwargs)
         if motor.is_local:
             messages = [dict(message) for message in payload.get("messages", [])]
+            max_tokens = int(payload.get("max_tokens", 512))
+            tool_tokens = max(1, len(json.dumps(payload.get("tools") or [], ensure_ascii=False)) // 3)
+            context_budget = max(256, settings.OLLAMA_EXTRA_BODY["options"]["num_ctx"] - max_tokens - tool_tokens)
+            payload["messages"] = ModelRouter._trim_local_messages(messages, context_budget)
+            messages = payload["messages"]
             if messages and messages[-1].get("role") == "user":
                 last = dict(messages[-1])
                 content = last.get("content") or ""
