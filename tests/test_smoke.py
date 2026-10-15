@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from config import settings
 from core import self_coder
+from core.brain import AssistantBrain
 from tools import registry
 from tools import browser_tools, dev_sec_tools
 from tools.custom_skills import abrir_aplicacion as app_skill
@@ -19,6 +20,15 @@ from tools.web_tools import leer_documentacion_web
 
 
 class SmokeTests(unittest.TestCase):
+    def test_local_context_budget_keeps_system_and_current_request(self) -> None:
+        messages = [{"role": "system", "content": "reglas " * 30}]
+        messages.extend({"role": "assistant", "content": f"antiguo {index} " * 100} for index in range(12))
+        messages.append({"role": "user", "content": "petición actual " * 20})
+        trimmed = AssistantBrain._context_for_model(messages)
+        self.assertEqual(trimmed[0]["role"], "system")
+        self.assertEqual(trimmed[-1]["content"], messages[-1]["content"])
+        self.assertLessEqual(sum(AssistantBrain._estimate_tokens(message) for message in trimmed), 1400)
+
     def test_manifest_skills_are_loadable_and_registered(self) -> None:
         for name in ("abrir_aplicacion", "calcular_sha256"):
             code = (self_coder.CUSTOM_DIR / f"{name}.py").read_text(encoding="utf-8")
