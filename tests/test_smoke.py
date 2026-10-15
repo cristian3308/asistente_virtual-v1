@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import io
 import shutil
+from types import SimpleNamespace
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -13,6 +14,7 @@ from config import settings
 from core import self_coder
 from tools import registry
 from tools import browser_tools, dev_sec_tools
+from tools.custom_skills import abrir_aplicacion as app_skill
 from tools.web_tools import leer_documentacion_web
 
 
@@ -47,12 +49,12 @@ class SmokeTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("notepad") or shutil.which("notepad.exe"), "Notepad no está disponible")
     def test_call_tool_routes_open_app_without_scanning_program_files(self) -> None:
-        candidates = __import__("tools.custom_skills.abrir_aplicacion", fromlist=["_buscar_candidatos"])._buscar_candidatos("notepad")
-        self.assertTrue(candidates)
         with patch.object(self_coder.Confirm, "ask", return_value=True), redirect_stdout(io.StringIO()):
             self_coder.cargar_habilidades_guardadas()
-        result = registry.call_tool("abrir_aplicacion", '{"nombre_aplicacion":"notepad"}')
-        self.assertIn("aplicación abierta", result.lower())
+        skill_path = self_coder.CUSTOM_DIR / "abrir_aplicacion.py"
+        target = SimpleNamespace(_custom_path=str(skill_path), __name__="_buscar_candidatos")
+        result = registry._invoke_custom_with_timeout(target, {"nombre": "notepad"})
+        self.assertIn("notepad", result.lower())
 
     def test_powershell_from_telegram_never_prompts(self) -> None:
         token = self_coder.confirmation_context(False)
@@ -63,6 +65,16 @@ class SmokeTests(unittest.TestCase):
         finally:
             self_coder.reset_confirmation_context(token)
         self.assertIn("Requiere consola local", result)
+
+    def test_app_partial_match_is_not_opened_and_alias_is_exact(self) -> None:
+        with patch.object(app_skill, "_buscar_candidatos", return_value=[Path("Discord.lnk")]), patch.object(app_skill.os, "startfile") as startfile:
+            result = app_skill.abrir_aplicacion("discordia")
+        self.assertIn("coincidencias", result)
+        startfile.assert_not_called()
+        with patch.object(app_skill, "_buscar_candidatos", return_value=[Path("calc.exe")]), patch.object(app_skill.os, "startfile") as startfile:
+            result = app_skill.abrir_aplicacion("calculadora")
+        self.assertIn("Aplicación abierta", result)
+        startfile.assert_called_once()
 
     def test_generated_code_uses_a_restricted_ast_surface(self) -> None:
         rejected = (

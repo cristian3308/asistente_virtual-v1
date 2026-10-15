@@ -6,6 +6,13 @@ import shutil
 import time
 from pathlib import Path
 
+_ALIASES = {
+    "calculadora": "calc",
+    "explorador": "explorer",
+    "blocdenotas": "notepad",
+    "configuracion": "ms-settings:",
+}
+
 
 def _normalizar(valor: str) -> str:
     return "".join(char.lower() for char in valor if char.isalnum())
@@ -83,6 +90,13 @@ def abrir_aplicacion(
 ) -> str:
     """Abre una app por nombre; también acepta una ruta explícita como respaldo."""
     consulta = nombre_aplicacion or aplicacion or app
+    alias = _ALIASES.get(_normalizar(consulta), consulta)
+    if alias == "ms-settings:":
+        try:
+            os.startfile(alias)
+            return "Aplicación abierta: configuración de Windows"
+        except OSError as exc:
+            return f"No se pudo abrir configuración de Windows: {exc}"
     explicit_path = file_path or ruta_archivo
     if explicit_path:
         candidate = Path(explicit_path).expanduser()
@@ -92,9 +106,16 @@ def abrir_aplicacion(
             return f"No encontré la aplicación en la ruta indicada: {candidate}"
         candidates = [candidate]
     else:
-        candidates = _buscar_candidatos(consulta)
+        candidates = _buscar_candidatos(alias)
     if not candidates:
         return f"No encontré '{consulta}'. Prueba con el nombre visible de la aplicación o proporciona su ruta."
+    normalized_alias = _normalizar(alias)
+    exact = [candidate for candidate in candidates if _normalizar(candidate.stem) == normalized_alias]
+    if len(exact) == 1:
+        candidates = exact
+    else:
+        options = ", ".join(str(candidate) for candidate in candidates[:8])
+        return f"Encontré coincidencias para '{consulta}', pero no una coincidencia exacta: {options}. ¿Cuál quieres abrir?"
     selected = candidates[0]
     try:
         os.startfile(str(selected))
