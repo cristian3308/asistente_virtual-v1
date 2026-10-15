@@ -111,7 +111,7 @@ def main() -> None:
                     ocr_text = ver_pantalla_actual()
                     analysis_prompt = (
                         f"Analiza el texto extraído de mi pantalla y responde directamente a esta pregunta: {question or '¿Qué observas?'}\n\n"
-                        f"Texto OCR:\n{ocr_text}"
+                        f"Texto OCR:\n{ocr_text[:3000]}"
                     )
                     answer, motor = brain.ask(analysis_prompt)
                 console.print(Panel(answer, title=f"Análisis de pantalla · {motor}", border_style="yellow"))

@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from config import settings
 from core import self_coder
+from core.brain import AssistantBrain
 from core.router import ModelRouter
 from tools import registry
 from tools import browser_tools, dev_sec_tools
@@ -20,6 +21,13 @@ from tools.web_tools import leer_documentacion_web
 
 
 class SmokeTests(unittest.TestCase):
+    def test_local_text_tool_call_allows_trailing_text(self) -> None:
+        call = AssistantBrain._parse_text_tool_call(
+            '{"name": "estado_hardware", "arguments": {}}\nUna vez que el servicio proporciona la información, podré mostrarla.'
+        )
+        self.assertIsNotNone(call)
+        self.assertEqual(call["name"], "estado_hardware")
+
     def test_local_context_budget_keeps_system_and_current_request(self) -> None:
         messages = [{"role": "system", "content": "reglas " * 30}]
         messages.extend({"role": "assistant", "content": f"antiguo {index} " * 100} for index in range(12))
@@ -48,6 +56,19 @@ class SmokeTests(unittest.TestCase):
                 active_tool_calls = {call["id"] for call in message.get("tool_calls", [])}
             if message["role"] == "tool":
                 self.assertIn(message["tool_call_id"], active_tool_calls)
+
+    def test_current_large_tool_block_is_compressed_not_dropped(self) -> None:
+        messages = [
+            {"role": "system", "content": "rules"},
+            {"role": "user", "content": "current request"},
+            {"role": "assistant", "content": None, "tool_calls": [{"id": "a"}, {"id": "b"}, {"id": "c"}]},
+            {"role": "tool", "tool_call_id": "a", "content": "A" * 1500},
+            {"role": "tool", "tool_call_id": "b", "content": "B" * 1500},
+            {"role": "tool", "tool_call_id": "c", "content": "C" * 1500},
+        ]
+        trimmed = ModelRouter._trim_local_messages(messages, 100)
+        self.assertEqual([message.get("tool_call_id") for message in trimmed if message["role"] == "tool"], ["a", "b", "c"])
+        self.assertTrue(all(len(message["content"]) < 1500 for message in trimmed if message["role"] == "tool"))
 
     def test_manifest_skills_are_loadable_and_registered(self) -> None:
         for name in ("abrir_aplicacion", "calcular_sha256"):

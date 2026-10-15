@@ -87,6 +87,23 @@ class ModelRouter:
         return max(1, (len(str(content)) + len(str(tool_calls)) + 2) // 3)
 
     @classmethod
+    def _fit_current_tool_block(cls, block: list[dict], available: int) -> list[dict]:
+        """Conserva todas las respuestas de herramientas, reduciendo su texto."""
+        tools = [message for message in block[1:] if message.get("role") == "tool"]
+        if not tools:
+            return block
+        fitted = [dict(block[0])] + [dict(message) for message in tools]
+        original_lengths = [len(message.get("content") or "") for message in fitted[1:]]
+        total = sum(cls._estimate_tokens(message) for message in fitted)
+        while total > available and any(length > 0 for length in original_lengths):
+            original_lengths = [length // 2 for length in original_lengths]
+            for message, length in zip(fitted[1:], original_lengths):
+                original = message.get("content") or ""
+                message["content"] = original[:length]
+            total = sum(cls._estimate_tokens(message) for message in fitted)
+        return fitted
+
+    @classmethod
     def _trim_local_messages(cls, messages: list[dict], budget: int) -> list[dict]:
         """Recorta por bloques válidos de conversación, sin tools huérfanos."""
         if not messages:
@@ -113,6 +130,9 @@ class ModelRouter:
         for block in blocks[last_user + 1:]:
             cost = sum(cls._estimate_tokens(item) for item in block)
             if used + cost > budget:
+                if block[0].get("role") == "assistant" and block[0].get("tool_calls"):
+                    fitted = cls._fit_current_tool_block(block, max(1, budget - used))
+                    selected_current.append(fitted)
                 break
             selected_current.append(block)
             used += cost

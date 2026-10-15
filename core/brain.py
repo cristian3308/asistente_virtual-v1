@@ -130,8 +130,8 @@ class AssistantBrain:
     def _parse_text_tool_call(content: str) -> dict | None:
         """Convierte el JSON de tool-call que algunos modelos locales imprimen como texto."""
         try:
-            value = json.loads(content.strip())
-        except (json.JSONDecodeError, TypeError):
+            value, _ = json.JSONDecoder().raw_decode((content or "").lstrip())
+        except (json.JSONDecodeError, TypeError, AttributeError):
             return None
         if not isinstance(value, dict) or not isinstance(value.get("name"), str):
             return None
