@@ -4,18 +4,25 @@ from __future__ import annotations
 import os
 import shutil
 import time
+import unicodedata
 from pathlib import Path
 
 _ALIASES = {
     "calculadora": "calc",
     "explorador": "explorer",
+    "exploradordearchivos": "explorer",
     "blocdenotas": "notepad",
+    "navegador": "chrome",
+    "musica": "spotify",
+    "terminal": "wt",
+    "cmd": "cmd",
     "configuracion": "ms-settings:",
 }
 
 
 def _normalizar(valor: str) -> str:
-    return "".join(char.lower() for char in valor if char.isalnum())
+    normalized = unicodedata.normalize("NFKD", valor).encode("ascii", "ignore").decode()
+    return "".join(char.lower() for char in normalized if char.isalnum())
 
 
 def _buscar_candidatos(nombre: str) -> list[Path]:
@@ -113,6 +120,8 @@ def abrir_aplicacion(
     exact = [candidate for candidate in candidates if _normalizar(candidate.stem) == normalized_alias]
     if len(exact) == 1:
         candidates = exact
+    elif len(candidates) == 1 and normalized_alias in _normalizar(candidates[0].stem):
+        candidates = candidates
     else:
         options = ", ".join(str(candidate) for candidate in candidates[:8])
         return f"Encontré coincidencias para '{consulta}', pero no una coincidencia exacta: {options}. ¿Cuál quieres abrir?"

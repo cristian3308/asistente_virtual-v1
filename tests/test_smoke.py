@@ -75,6 +75,14 @@ class SmokeTests(unittest.TestCase):
             result = app_skill.abrir_aplicacion("calculadora")
         self.assertIn("Aplicación abierta", result)
         startfile.assert_called_once()
+        with patch.object(app_skill, "_buscar_candidatos", return_value=[Path("Google Chrome.lnk")]), patch.object(app_skill.os, "startfile") as startfile:
+            result = app_skill.abrir_aplicacion("chrome")
+        self.assertIn("Aplicación abierta", result)
+        startfile.assert_called_once()
+        with patch.object(app_skill.os, "startfile") as startfile:
+            result = app_skill.abrir_aplicacion("configuración")
+        self.assertIn("configuración", result.lower())
+        startfile.assert_called_once_with("ms-settings:")
 
     def test_generated_code_uses_a_restricted_ast_surface(self) -> None:
         rejected = (
