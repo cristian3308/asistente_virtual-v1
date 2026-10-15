@@ -133,6 +133,7 @@ class ModelRouter:
                 if block[0].get("role") == "assistant" and block[0].get("tool_calls"):
                     fitted = cls._fit_current_tool_block(block, max(1, budget - used))
                     selected_current.append(fitted)
+                    used += sum(cls._estimate_tokens(item) for item in fitted)
                 break
             selected_current.append(block)
             used += cost
@@ -179,10 +180,11 @@ class ModelRouter:
             try:
                 call_kwargs = dict(kwargs)
                 if "tools" in call_kwargs:
-                    from tools.registry import obtener_herramientas_relevantes
-                    call_kwargs["tools"] = obtener_herramientas_relevantes(prompt, motor.is_local)
-                    if call_kwargs["tools"] is None:
-                        call_kwargs.pop("tool_choice", None)
+                    if call_kwargs["tools"]:
+                        from tools.registry import obtener_herramientas_relevantes
+                        call_kwargs["tools"] = obtener_herramientas_relevantes(prompt, motor.is_local)
+                        if call_kwargs["tools"] is None:
+                            call_kwargs.pop("tool_choice", None)
                 result = motor.client.chat.completions.create(model=motor.model, **self._payload_for(motor, call_kwargs))
                 return result, motor
             except Exception as exc:  # fallback ante errores de red/modelo/API
@@ -196,10 +198,11 @@ class ModelRouter:
             try:
                 call_kwargs = dict(kwargs)
                 if "tools" in call_kwargs:
-                    from tools.registry import obtener_herramientas_relevantes
-                    call_kwargs["tools"] = obtener_herramientas_relevantes(prompt, motor.is_local)
-                    if call_kwargs["tools"] is None:
-                        call_kwargs.pop("tool_choice", None)
+                    if call_kwargs["tools"]:
+                        from tools.registry import obtener_herramientas_relevantes
+                        call_kwargs["tools"] = obtener_herramientas_relevantes(prompt, motor.is_local)
+                        if call_kwargs["tools"] is None:
+                            call_kwargs.pop("tool_choice", None)
                 stream = motor.client.chat.completions.create(
                     model=motor.model, stream=True, **self._payload_for(motor, call_kwargs)
                 )

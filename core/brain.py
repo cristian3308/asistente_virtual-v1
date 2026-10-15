@@ -40,6 +40,8 @@ class AssistantBrain:
         self.history.append({"role": "user", "content": prompt})
         self._proactive_system_checks(prompt)
         used_motor = "—"
+        tools_for_turn = TOOL_SCHEMAS
+        seen_tool_results: dict[tuple[str, str], str] = {}
         try:
             for _ in range(5):
                 text_parts: list[str] = []
@@ -48,7 +50,10 @@ class AssistantBrain:
                 streamed_text = ""
                 json_candidate = False
                 for chunk, current_motor in self.router.stream(
-                    prompt, messages=self.history, tools=TOOL_SCHEMAS, tool_choice="auto"
+                    prompt,
+                    messages=self.history,
+                    tools=tools_for_turn,
+                    tool_choice="auto" if tools_for_turn else "none",
                 ):
                     motor = current_motor
                     for choice in getattr(chunk, "choices", []) or []:
@@ -77,7 +82,7 @@ class AssistantBrain:
                 answer = self._clean_model_answer(
                     re.sub(r"<think>.*?</think>", "", "".join(text_parts), flags=re.DOTALL).strip()
                 )
-                if not tool_calls and json_candidate:
+                if not tool_calls and json_candidate and tools_for_turn:
                     parsed_call = self._parse_text_tool_call(answer)
                     if parsed_call:
                         tool_calls[0] = parsed_call
@@ -105,7 +110,15 @@ class AssistantBrain:
                     except json.JSONDecodeError:
                         parsed = {}
                     print(f"[Herramienta] {name}({parsed})")
-                    result = call_tool(name, call["function"]["arguments"] or "{}")
+                    cache_key = (name, json.dumps(parsed, sort_keys=True, ensure_ascii=False))
+                    if cache_key in seen_tool_results:
+                        result = seen_tool_results[cache_key]
+                        tools_for_turn = []
+                    else:
+                        result = call_tool(name, call["function"]["arguments"] or "{}")
+                        seen_tool_results[cache_key] = result
+                    if motor.is_local:
+                        tools_for_turn = []
                     self._show_tool_result(name, result)
                     bounded_result = result[:self.TOOL_CONTEXT_CHAR_LIMIT]
                     if len(result) > self.TOOL_CONTEXT_CHAR_LIMIT:
@@ -130,7 +143,11 @@ class AssistantBrain:
     def _parse_text_tool_call(content: str) -> dict | None:
         """Convierte el JSON de tool-call que algunos modelos locales imprimen como texto."""
         try:
-            value, _ = json.JSONDecoder().raw_decode((content or "").lstrip())
+            text = (content or "").lstrip()
+            start = text.find("{")
+            if start < 0:
+                return None
+            value, _ = json.JSONDecoder().raw_decode(text[start:])
         except (json.JSONDecodeError, TypeError, AttributeError):
             return None
         if not isinstance(value, dict) or not isinstance(value.get("name"), str):

@@ -23,10 +23,21 @@ from tools.web_tools import leer_documentacion_web
 class SmokeTests(unittest.TestCase):
     def test_local_text_tool_call_allows_trailing_text(self) -> None:
         call = AssistantBrain._parse_text_tool_call(
-            '{"name": "estado_hardware", "arguments": {}}\nUna vez que el servicio proporciona la información, podré mostrarla.'
+            'Voy a consultar: {"name": "estado_hardware", "arguments": {}}\nUna vez que el servicio proporciona la información, podré mostrarla.'
         )
         self.assertIsNotNone(call)
         self.assertEqual(call["name"], "estado_hardware")
+
+    def test_schema_wrapped_arguments_are_unwrapped(self) -> None:
+        self.assertEqual(registry._unwrap_schema_values({"consulta": {"type": "string", "value": "RAM"}}), {"consulta": "RAM"})
+
+    def test_local_payload_can_disable_tools(self) -> None:
+        from core.router import Motor
+        payload = ModelRouter._payload_for(
+            Motor(None, "qwen2.5-coder:3b", "Local"),
+            {"messages": [{"role": "system", "content": "rules"}, {"role": "user", "content": "answer"}], "tools": [], "tool_choice": "none"},
+        )
+        self.assertEqual(payload["tools"], [])
 
     def test_local_context_budget_keeps_system_and_current_request(self) -> None:
         messages = [{"role": "system", "content": "reglas " * 30}]

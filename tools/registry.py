@@ -266,6 +266,7 @@ def call_tool(name: str, raw_arguments: str) -> str:
         args = json.loads(raw_arguments or "{}")
         if not isinstance(args, dict):
             return "Argumentos inválidos: se esperaba un objeto JSON."
+        args = _unwrap_schema_values(args)
         tool = FUNCTIONS[name]
         target = getattr(tool, "_tool_target", None)
         result = _invoke_custom_with_timeout(target, _invoke_arguments(target, args)) if target is not None else tool(args)
@@ -277,6 +278,14 @@ def call_tool(name: str, raw_arguments: str) -> str:
         except Exception:
             pass
         return f"Error en {name}: {type(exc).__name__}: {exc}"
+
+
+def _unwrap_schema_values(arguments: dict) -> dict:
+    """Acepta el formato erróneo que algunos modelos usan para argumentos."""
+    return {
+        key: value.get("value") if isinstance(value, dict) and "value" in value else value
+        for key, value in arguments.items()
+    }
 
 
 def _invoke_arguments(function, arguments: dict) -> dict:
