@@ -95,7 +95,6 @@ def _validate(name: str, code: str) -> ast.Module:
         if function.decorator_list:
             raise ValueError("Los decoradores están bloqueados en habilidades generadas.")
     module_aliases: dict[str, str] = {}
-    imported_names: dict[str, tuple[str, str]] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.startswith("__"):
             raise ValueError("Las cadenas de protocolo interno están bloqueadas en habilidades generadas.")
@@ -116,7 +115,6 @@ def _validate(name: str, code: str) -> ast.Module:
             for alias in node.names:
                 if alias.name not in _ALLOWED_MODULE_ATTRIBUTES[module]:
                     raise ValueError(f"Símbolo no permitido desde {module}: {alias.name}")
-                imported_names[alias.asname or alias.name] = (module, alias.name)
         if isinstance(node, ast.Attribute) and (
             node.attr.startswith("_") or node.attr in _FORBIDDEN_ATTRIBUTES
         ):
@@ -146,15 +144,46 @@ def _validate(name: str, code: str) -> ast.Module:
     return tree
 
 
+def _signature_from_ast(function: ast.FunctionDef | ast.AsyncFunctionDef) -> inspect.Signature:
+    """Construye la firma pública sin importar ni ejecutar el módulo."""
+    parameters: list[inspect.Parameter] = []
+    positional = [*getattr(function.args, "posonlyargs", []), *function.args.args]
+    defaults = [inspect.Parameter.empty] * (len(positional) - len(function.args.defaults))
+    defaults.extend(_literal_default(value) for value in function.args.defaults)
+    for index, argument in enumerate(positional):
+        kind = inspect.Parameter.POSITIONAL_ONLY if index < len(getattr(function.args, "posonlyargs", [])) else inspect.Parameter.POSITIONAL_OR_KEYWORD
+        parameters.append(inspect.Parameter(argument.arg, kind, default=defaults[index], annotation=_annotation_value(argument.annotation)))
+    if function.args.vararg:
+        parameters.append(inspect.Parameter(function.args.vararg.arg, inspect.Parameter.VAR_POSITIONAL))
+    for argument, default in zip(function.args.kwonlyargs, function.args.kw_defaults):
+        parameters.append(inspect.Parameter(argument.arg, inspect.Parameter.KEYWORD_ONLY, default=_literal_default(default), annotation=_annotation_value(argument.annotation)))
+    if function.args.kwarg:
+        parameters.append(inspect.Parameter(function.args.kwarg.arg, inspect.Parameter.VAR_KEYWORD))
+    return inspect.Signature(parameters)
+
+
+def _literal_default(node: ast.AST | None) -> object:
+    if node is None:
+        return inspect.Parameter.empty
+    try:
+        return ast.literal_eval(node)
+    except (ValueError, TypeError):
+        return inspect.Parameter.empty
+
+
+def _annotation_value(node: ast.AST | None) -> object:
+    if isinstance(node, ast.Name) and node.id in {"str", "int", "float", "bool"}:
+        return {"str": str, "int": int, "float": float, "bool": bool}[node.id]
+    return inspect.Parameter.empty
+
+
 class _LazySkill:
     """Proxy que permite registrar la firma sin ejecutar código no aislado."""
 
-    def __init__(self, name: str, path: Path) -> None:
+    def __init__(self, name: str, path: Path, signature: inspect.Signature) -> None:
         self.__name__ = name
         self._custom_path = str(path)
-        self.__signature__ = inspect.Signature([
-            inspect.Parameter("kwargs", inspect.Parameter.VAR_KEYWORD)
-        ])
+        self.__signature__ = signature
 
     def __call__(self, **_kwargs):
         raise RuntimeError("La habilidad custom solo puede ejecutarse en el worker aislado.")
@@ -166,7 +195,8 @@ def _load(name: str, path: Path) -> object:
     tree = ast.parse(code, filename=str(path), mode="exec")
     if not any(isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name for node in tree.body):
         raise ValueError(f"La habilidad {name} no expone una función invocable.")
-    proxy = _LazySkill(name, path)
+    function = next(node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name)
+    proxy = _LazySkill(name, path, _signature_from_ast(function))
     _loaded_modules[name] = proxy
     return proxy
 

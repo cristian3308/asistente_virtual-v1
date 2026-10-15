@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import time
 from pathlib import Path
 
 
@@ -28,28 +29,46 @@ def _buscar_candidatos(nombre: str) -> list[Path]:
         "PROGRAMFILES_X86": os.getenv("ProgramFiles(x86)", ""),
         "LOCALAPPDATA": os.getenv("LOCALAPPDATA", ""),
     }
-    roots = [
-        Path(variables["APPDATA"]) / "Microsoft" / "Windows" / "Start Menu" / "Programs",
-        Path(os.getenv("ProgramData", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs",
-        Path(variables["PROGRAMFILES"]),
-        Path(variables["PROGRAMFILES_X86"]),
-        Path(variables["LOCALAPPDATA"]) / "Programs",
+    start_menu_roots = [
+        Path(value) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+        for value in (variables["APPDATA"], os.getenv("ProgramData", "")) if value
     ]
-    for root in roots:
+    for root in start_menu_roots:
         if not root.is_dir():
             continue
         try:
-            # Limita el recorrido para no bloquear la consola en discos grandes.
-            for item in root.rglob("*"):
-                if len(candidatos) >= 12:
-                    break
-                if item.is_file() and item.suffix.lower() in {".exe", ".lnk", ".bat"}:
-                    stem = _normalizar(item.stem)
-                    if stem and (consulta == stem or consulta in stem or (len(stem) >= 3 and stem in consulta)):
-                        candidatos.append(item)
+            for item in root.rglob("*.lnk"):
+                stem = _normalizar(item.stem)
+                if stem == consulta:
+                    return [item]
+                if stem and (consulta in stem or (len(stem) >= 3 and stem in consulta)):
+                    candidatos.append(item)
         except (OSError, RuntimeError):
             continue
-    # Mantiene orden y elimina duplicados.
+    deadline = time.monotonic() + 8
+    program_roots = [Path(value) for value in (
+        variables["PROGRAMFILES"], variables["PROGRAMFILES_X86"]
+    ) if value]
+    if variables["LOCALAPPDATA"]:
+        program_roots.append(Path(variables["LOCALAPPDATA"]) / "Programs")
+    for root in program_roots:
+        if time.monotonic() >= deadline or not root.is_dir():
+            continue
+        try:
+            patterns = ("*.exe", "*/*.exe", "*/*/*.exe")
+            for pattern in patterns:
+                for item in root.glob(pattern):
+                    if time.monotonic() >= deadline:
+                        break
+                    stem = _normalizar(item.stem)
+                    if stem == consulta:
+                        return [item]
+                    if stem and (consulta in stem or (len(stem) >= 3 and stem in consulta)):
+                        candidatos.append(item)
+                if time.monotonic() >= deadline:
+                    break
+        except (OSError, RuntimeError):
+            continue
     return list(dict.fromkeys(candidatos))
 
 

@@ -28,6 +28,10 @@ class SmokeTests(unittest.TestCase):
         self.assertIn("calcular_sha256", loaded)
         self.assertIn("abrir_aplicacion", registry.FUNCTIONS)
         self.assertIn("calcular_sha256", registry.FUNCTIONS)
+        calc_schema = next(schema for schema in registry.TOOL_SCHEMAS if schema["function"]["name"] == "calcular_sha256")
+        self.assertIn("ruta_archivo", calc_schema["function"]["parameters"]["properties"])
+        call_result = registry.call_tool("calcular_sha256", '{"ruta_archivo":"tests/test_smoke.py"}')
+        self.assertEqual(len(call_result), 64)
         target = registry.FUNCTIONS["calcular_sha256"]._tool_target
         isolated_result = registry._invoke_custom_with_timeout(target, {"ruta_archivo": str(Path(__file__))})
         self.assertEqual(len(isolated_result), 64)
@@ -47,9 +51,8 @@ class SmokeTests(unittest.TestCase):
         self.assertTrue(candidates)
         with patch.object(self_coder.Confirm, "ask", return_value=True), redirect_stdout(io.StringIO()):
             self_coder.cargar_habilidades_guardadas()
-        with patch.object(registry, "_invoke_custom_with_timeout", return_value="notepad.EXE encontrado"):
-            result = registry.call_tool("abrir_aplicacion", '{"nombre_aplicacion":"notepad"}')
-        self.assertIn("notepad", result.lower())
+        result = registry.call_tool("abrir_aplicacion", '{"nombre_aplicacion":"notepad"}')
+        self.assertIn("aplicación abierta", result.lower())
 
     def test_powershell_from_telegram_never_prompts(self) -> None:
         token = self_coder.confirmation_context(False)
