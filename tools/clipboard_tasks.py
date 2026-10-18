@@ -1,7 +1,6 @@
-"""Portapapeles Windows y recordatorios no bloqueantes."""
+"""Portapapeles de Windows y recordatorios persistentes."""
 from __future__ import annotations
 
-import threading
 from datetime import datetime, timedelta
 
 
@@ -22,20 +21,23 @@ def copiar_al_portapapeles(texto: str) -> str:
         return f"No se pudo copiar al portapapeles: {exc}"
 
 
-def programar_recordatorio(minutos: int, mensaje: str) -> str:
-    minutos = max(1, min(int(minutos), 10080))
+def programar_recordatorio(mensaje: str, minutos: int = 0, hora: str = "") -> str:
+    """Recordatorio persistente: sobrevive a cerrar el programa y avisa también por Telegram.
 
-    def notify() -> None:
-        text = f"⏰ Recordatorio: {mensaje}"
-        print(text)
+    `hora` admite "HH:MM" (hoy, o mañana si ya pasó); si no, se usan `minutos` desde ahora.
+    """
+    from core import tareas
+
+    ahora = datetime.now().replace(second=0, microsecond=0)
+    if hora:
         try:
-            from voice.mouth_tts import hablar
-            hablar(text)
-        except Exception:
-            pass
-
-    timer = threading.Timer(minutos * 60, notify)
-    timer.daemon = True
-    timer.start()
-    due = datetime.now() + timedelta(minutes=minutos)
-    return f"Recordatorio programado para {due:%Y-%m-%d %H:%M}."
+            hh, mm = (int(parte) for parte in hora.strip().split(":")[:2])
+            cuando = ahora.replace(hour=hh, minute=mm)
+        except ValueError:
+            return f"Hora no válida: '{hora}'. Usa HH:MM, por ejemplo 18:30."
+        if cuando <= datetime.now():
+            cuando += timedelta(days=1)
+    else:
+        cuando = datetime.now().replace(microsecond=0) + timedelta(minutes=max(1, min(int(minutos or 1), 10080)))
+    id_tarea = tareas.crear("recordatorio", mensaje, cuando=cuando)
+    return f"Recordatorio [{id_tarea}] programado para {cuando:%Y-%m-%d %H:%M}: {mensaje}"

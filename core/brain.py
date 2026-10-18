@@ -95,11 +95,18 @@ class AssistantBrain:
             return "listar_aplicaciones", {"filtro": app.strip()}
         return None
 
-    # Consola y Telegram comparten el mismo historial: un turno a la vez.
-    _turno = threading.RLock()
+    # Consola y Telegram comparten el mismo cerebro e historial: un turno a la vez.
+    # El candado es de cada cerebro: el agente de tareas en segundo plano usa otro y no bloquea.
+    _creando_candado = threading.Lock()
+
+    def _candado(self) -> threading.RLock:
+        with self._creando_candado:
+            if "_turno" not in self.__dict__:
+                self._turno = threading.RLock()
+            return self._turno
 
     def ask(self, prompt: str, on_token=None) -> tuple[str, str]:
-        with self._turno:
+        with self._candado():
             return self._ask(prompt, on_token)
 
     def _ask(self, prompt: str, on_token=None) -> tuple[str, str]:

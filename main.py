@@ -35,6 +35,16 @@ def main() -> None:
         console.print(f"[green]Habilidades aprobadas cargadas:[/green] {', '.join(loaded_skills)}")
     voice_enabled = False
     sentinel = Sentinel(voice_enabled=lambda: voice_enabled)
+    from core import tareas
+    from interfaces import notificaciones
+    notificaciones.voz_activa = lambda: voice_enabled
+    # Cerebro propio para el segundo plano: no comparte historial ni candado con la consola.
+    motor_tareas = tareas.MotorTareas(crear_cerebro=AssistantBrain, notificar=notificaciones.notificar)
+    recuperadas = motor_tareas.iniciar()
+    pendientes = tareas.listar()
+    if recuperadas or pendientes:
+        console.print(f"[cyan]Tareas: {len(pendientes)} pendiente(s)"
+                      + (f", {recuperadas} reanudada(s) tras el reinicio" if recuperadas else "") + ". /tareas para verlas.[/cyan]")
     if settings.TELEGRAM_BOT_TOKEN and settings.TELEGRAM_ALLOWED_USER_ID:
         try:
             from interfaces.telegram_bot import run_telegram
@@ -45,7 +55,7 @@ def main() -> None:
     console.print(Panel.fit(
         "Asistente Híbrido — Windows · RTX 3050 · OpenCode Go / Ollama\n"
         f"Ollama: {'activo' if settings.ollama_activo() else 'apagado'} | Cloud: {'configurado' if settings.cloud_configurado() else 'sin API key'}\n"
-        "Comandos: /estado /limpiar /indexar <ruta> /recuerdos /habilidades /cargar_habilidades /ver <pregunta> /centinela <on|off> /benchmark /modelo <codigo|razonamiento|rapido|local|turbo> /recuerdos /olvidar /auditoria /parar /reanudar /voz /voces /voz_probar /voz_usar /conversar /avatar /salir",
+        "Comandos: /estado /limpiar /indexar <ruta> /recuerdos /habilidades /cargar_habilidades /ver <pregunta> /centinela <on|off> /benchmark /modelo <codigo|razonamiento|rapido|local|turbo> /tareas /tarea <objetivo> /cancelar /pausar /reactivar /olvidar /auditoria /parar /reanudar /voz /voces /voz_probar /voz_usar /conversar /avatar /salir",
         title="🤖 Asistente Virtual Profundo", border_style="cyan",
     ))
 
@@ -258,6 +268,30 @@ def main() -> None:
                 from core import auditoria
                 console.print(f"[green]{auditoria.reanudar()}[/green]")
                 continue
+            if lower.startswith("/tareas"):
+                tabla = Table(title="Tareas (/tareas todas: incluye terminadas)")
+                for columna in ("id", "tipo", "estado", "cuándo", "objetivo", "intentos", "próximo paso / resultado"):
+                    tabla.add_column(columna, overflow="fold")
+                for t in tareas.listar(incluir_terminadas="todas" in lower):
+                    tabla.add_row(t["id"], t["tipo"], t["estado"], (t["programada_para"] or "")[5:16].replace("T", " "),
+                                  t["objetivo"][:50], f"{t['intentos']}/{t['max_intentos']}",
+                                  (t["proximo_paso"] or t["resultado"] or t["error"] or "")[:70])
+                console.print(tabla if tabla.rows else "[dim]No hay tareas. Crea una con /tarea <objetivo> o pide un recordatorio.[/dim]")
+                continue
+            if lower.startswith("/tarea "):
+                id_tarea = tareas.crear("agente", prompt.partition(" ")[2])
+                console.print(f"[green]Tarea [{id_tarea}] en cola: la hago en segundo plano y te aviso al terminar.[/green]")
+                continue
+            for comando, accion, texto in (("/cancelar", tareas.cancelar, "cancelada"), ("/pausar", tareas.pausar, "pausada"),
+                                           ("/reactivar", tareas.continuar, "reactivada")):
+                if lower.startswith(comando + " "):
+                    id_tarea = prompt.partition(" ")[2].strip("[] ")
+                    console.print(f"Tarea {id_tarea} {texto}." if accion(id_tarea) else f"No pude: revisa el id con /tareas.")
+                    break
+            else:
+                comando = None
+            if comando:
+                continue
             if lower.startswith("/auditoria"):
                 from core import auditoria
                 tabla = Table(title="Últimas acciones (data/auditoria/acciones.jsonl)")
@@ -276,6 +310,7 @@ def main() -> None:
             responder(prompt)
         except (KeyboardInterrupt, EOFError):
             break
+    motor_tareas.detener()
     avatar.detener()
     console.print("[dim]Cerrando asistente.[/dim]")
 

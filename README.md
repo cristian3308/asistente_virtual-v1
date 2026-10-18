@@ -59,6 +59,10 @@ resumen"*, *"recuérdame en 10 minutos…"*, *"guarda una nota…"*.
 | `/voz` | Activa la voz: Enter vacío para hablar |
 | `/voces`, `/voz_probar jarvis`, `/voz_usar jarvis` | Ver, escuchar y elegir la voz |
 | `/recuerdos`, `/olvidar <id o texto>` | Ver y borrar lo que sabe de ti |
+| `/tareas`, `/tarea <objetivo>` | Ver tareas y encargar un trabajo en segundo plano (avisa al terminar) |
+| `/cancelar`, `/pausar`, `/reactivar <id>` | Gestionar tareas |
+| `/parar`, `/reanudar` | **Parada de emergencia**: corta todo al instante (también desde Telegram) |
+| `/auditoria` | Últimas acciones registradas |
 | `/habilidades`, `/autoprogramar <instrucción>` | Ver y crear habilidades |
 | `/ver <pregunta>` | Analiza el texto de tu pantalla (OCR) |
 | `/modelo local\|codigo\|razonamiento\|rapido\|turbo` | Elegir modelo |
@@ -77,11 +81,18 @@ prueba en un proceso aislado** (sin tus claves, sin archivos ni red, con límite
 la repara si falla y te muestra el código con los resultados antes de instalarla.
 Se usa en ese mismo momento, sin reiniciar.
 
+### Tareas y recordatorios
+Los recordatorios (*"recuérdame a las 18:30…"*) y las tareas en segundo plano (*"encárgate de investigar…"*, `/tarea …`) se guardan en `data/tareas.db`: sobreviven a cerrar el programa y las que quedaron a medias se reanudan al volver a abrirlo. Reintentan con espera creciente (máximo 3 intentos) y avisan en consola, por voz y por Telegram. En segundo plano no puede aprobar acciones sensibles: esas se rechazan solas.
+
+### Auditoría y parada de emergencia
+Cada herramienta, confirmación, habilidad instalada y escalado a la nube queda en `data/auditoria/acciones.jsonl` (con origen, duración y resultado; las claves se ocultan). `/parar` bloquea herramientas, corta la respuesta en curso, silencia la voz y pausa las tareas.
+
 ### Telegram
 1. En Telegram, `@BotFather` → `/newbot` → copia el token.
 2. `@userinfobot` → copia tu id numérico.
 3. Ponlos en `.env` (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_ID`) y reinicia.
-4. Escribe `/start` a tu bot. Texto, notas de voz (responde con voz) y `/captura`.
+4. Escribe `/start` a tu bot. Texto, notas de voz (responde con voz), `/captura`, `/tarea`, `/tareas`,
+   `/cancelar` y la parada de emergencia `/parar` · `/reanudar`.
 
 Solo responde a tu id. Desde Telegram no ejecuta PowerShell ni instala habilidades.
 
@@ -132,9 +143,8 @@ tests/                  pruebas automatizadas
 
 ## Hoja de ruta
 
-Hecho: chat local/nube, memoria personal persistente, voz, avatar, Telegram, habilidades
-con pruebas aisladas, investigación web. Próximo: registro de auditoría y parada de
-emergencia, motor de tareas persistente, agente programador en ramas de git, interfaz
-web/PWA con acceso seguro desde Android, visión multimodal.
+Hecho: chat local/nube con escalado automático, memoria personal persistente, voz, avatar, Telegram, habilidades con pruebas aisladas, investigación web, registro de auditoría, parada de emergencia y motor de tareas persistente con avisos.
+
+Próximo: agente programador en ramas de git (editar código con revisión de cambios), interfaz web/PWA con acceso seguro desde Android (Tailscale), visión multimodal, resúmenes de memoria.
 
 Créditos: avatar basado en [robot-heads](https://github.com/fayazara/robot-heads) (MIT).

@@ -59,6 +59,32 @@ def _ejecutar_bot(brain, Update, Application, CommandHandler, ContextTypes, Mess
         if _authorized(update):
             await update.message.reply_text(auditoria.detener("telegram"))
 
+    async def tareas_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not _authorized(update):
+            return
+        from core import tareas
+        activas = tareas.listar()
+        texto = chr(10).join(tareas.describir(t) for t in activas) or "No hay tareas pendientes."
+        await update.message.reply_text(texto + chr(10) + chr(10) + "Nueva: /tarea <objetivo> · cancelar: /cancelar <id>")
+
+    async def tarea_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not _authorized(update):
+            return
+        from core import tareas
+        objetivo = " ".join(context.args or [])
+        if not objetivo:
+            await update.message.reply_text("Uso: /tarea <lo que quieres que haga en segundo plano>")
+            return
+        id_tarea = tareas.crear("agente", objetivo, origen="telegram")
+        await update.message.reply_text(f"Tarea [{id_tarea}] en cola. Te aviso aquí cuando termine.")
+
+    async def cancelar_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not _authorized(update):
+            return
+        from core import tareas
+        id_tarea = "".join(context.args or []).strip("[] ")
+        await update.message.reply_text(f"Tarea {id_tarea} cancelada." if tareas.cancelar(id_tarea) else "No encontré esa tarea activa.")
+
     async def reanudar_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if _authorized(update):
             await update.message.reply_text(auditoria.reanudar())
@@ -136,7 +162,7 @@ def _ejecutar_bot(brain, Update, Application, CommandHandler, ContextTypes, Mess
             await update.message.reply_text(
                 "Hola, Cristhian. Escríbeme o mándame una nota de voz y te respondo (con voz si me hablas).\n"
                 "Por seguridad, desde aquí no ejecuto PowerShell ni instalo habilidades nuevas.\n"
-                "/captura foto de la pantalla del PC · /parar detiene todo (emergencia) · /reanudar · /estado conexión."
+                "/tarea <objetivo> trabajo en segundo plano · /tareas · /captura foto de la pantalla · /parar emergencia · /reanudar · /estado"
             )
 
     async def al_conectar(application) -> None:
@@ -152,6 +178,9 @@ def _ejecutar_bot(brain, Update, Application, CommandHandler, ContextTypes, Mess
     app.add_handler(CommandHandler("captura", captura_handler))
     app.add_handler(CommandHandler("parar", parar_handler))
     app.add_handler(CommandHandler("reanudar", reanudar_handler))
+    app.add_handler(CommandHandler("tareas", tareas_handler))
+    app.add_handler(CommandHandler("tarea", tarea_handler))
+    app.add_handler(CommandHandler("cancelar", cancelar_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     app.add_handler(MessageHandler(filters.VOICE, voice_handler))
     app.run_polling(drop_pending_updates=True)
