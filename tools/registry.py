@@ -31,9 +31,10 @@ TOOL_SCHEMAS = [
     _tool("guardar_recuerdo_importante", "Guarda un dato personal o preferencia en memoria semántica.", {"dato": {"type": "string"}, "categoria": {"type": "string"}}, ["dato", "categoria"]),
     _tool("buscar_en_memoria_profunda", "Busca recuerdos personales relevantes.", {"consulta": {"type": "string"}}, ["consulta"]),
     _tool("indexar_proyecto_local", "Indexa archivos locales compatibles para RAG.", {"ruta_carpeta": {"type": "string"}}, ["ruta_carpeta"]),
-    _tool("autoprogramar_habilidad", "Forja y registra una herramienta Python segura para un objetivo que aún no está soportado.", {"objetivo": {"type": "string"}, "nombre_funcion": {"type": "string"}}, ["objetivo", "nombre_funcion"]),
+    _tool("autoprogramar_habilidad", "Aprende una habilidad nueva de cálculo o de texto (fechas, conversiones, conteos, extracción con regex, formatos). No sirve para archivos, registro, comandos, internet ni abrir programas.", {"objetivo": {"type": "string"}, "nombre_funcion": {"type": "string"}}, ["objetivo", "nombre_funcion"]),
     _tool("ver_pantalla_actual", "Captura la pantalla y extrae texto mediante OCR local.", {"pregunta": {"type": "string"}}),
     _tool("buscar_en_internet", "Investiga documentación y resultados web actuales.", {"consulta": {"type": "string"}, "max_resultados": {"type": "integer"}}, ["consulta"]),
+    _tool("investigar_tema", "Investiga un tema en internet (busca, lee varias páginas) y devuelve un resumen con fuentes. Úsala para 'investiga', 'averigua', 'resúmeme' o noticias.", {"tema": {"type": "string"}}, ["tema"]),
     _tool("leer_documentacion_web", "Lee y limpia una página de documentación.", {"url": {"type": "string"}}, ["url"]),
     _tool("crear_o_actualizar_nota", "Guarda una nota Markdown en la bóveda.", {"titulo": {"type": "string"}, "contenido": {"type": "string"}, "carpeta": {"type": "string"}, "tags": {"type": "string"}}, ["titulo", "contenido"]),
     _tool("buscar_en_boveda", "Busca notas Markdown locales.", {"consulta": {"type": "string"}}, ["consulta"]),
@@ -42,8 +43,10 @@ TOOL_SCHEMAS = [
     _tool("copiar_al_portapapeles", "Copia texto al portapapeles de Windows.", {"texto": {"type": "string"}}, ["texto"]),
     _tool("programar_recordatorio", "Programa un aviso no bloqueante.", {"minutos": {"type": "integer"}, "mensaje": {"type": "string"}}, ["minutos", "mensaje"]),
     _tool("automatizar_navegador", "Lee páginas o ejecuta acciones declarativas con Playwright.", {"url": {"type": "string"}, "acciones": {"type": "string"}}, ["url"]),
+    _tool("listar_aplicaciones", "Lista las aplicaciones instaladas en el PC (menú Inicio y Microsoft Store); filtro opcional por nombre.", {"filtro": {"type": "string"}}),
     _tool("listar_habilidades_disponibles", "Enumera las capacidades actuales, incluidas las aprendidas por Tool Forge."),
 ]
+_BUILTIN_TOOL_NAMES = {schema["function"]["name"] for schema in TOOL_SCHEMAS}
 
 FUNCTIONS = {
     "estado_hardware": lambda a: system_tools.estado_hardware(),
@@ -56,6 +59,7 @@ FUNCTIONS = {
     "autoprogramar_habilidad": lambda a: _autoprogramar_dispatch(a),
     "ver_pantalla_actual": lambda a: vision_tools.ver_pantalla_actual(a.get("pregunta", "")),
     "buscar_en_internet": lambda a: web_tools.buscar_en_internet(a["consulta"], a.get("max_resultados", 5)),
+    "investigar_tema": lambda a: web_tools.investigar_tema(a.get("tema") or a.get("consulta", "")),
     "leer_documentacion_web": lambda a: web_tools.leer_documentacion_web(a["url"]),
     "crear_o_actualizar_nota": lambda a: knowledge_vault.crear_o_actualizar_nota(a["titulo"], a["contenido"], a.get("carpeta", "Proyectos"), a.get("tags", "")),
     "buscar_en_boveda": lambda a: knowledge_vault.buscar_en_boveda(a["consulta"]),
@@ -64,6 +68,7 @@ FUNCTIONS = {
     "copiar_al_portapapeles": lambda a: clipboard_tasks.copiar_al_portapapeles(a["texto"]),
     "programar_recordatorio": lambda a: clipboard_tasks.programar_recordatorio(a["minutos"], a["mensaje"]),
     "automatizar_navegador": lambda a: browser_tools.automatizar_navegador(a["url"], a.get("acciones", "[]")),
+    "listar_aplicaciones": lambda a: system_tools.listar_aplicaciones(a.get("filtro", "")),
     "listar_habilidades_disponibles": lambda a: listar_habilidades_disponibles(),
     "guardar_recuerdo_importante": lambda a: memory_tools.guardar_recuerdo_importante(a["dato"], a["categoria"]),
     "buscar_en_memoria_profunda": lambda a: memory_tools.buscar_en_memoria_profunda(a["consulta"]),
@@ -104,7 +109,7 @@ def obtener_herramientas_relevantes(prompt: str, es_local: bool) -> list | None:
         "hardware": {"estado_hardware", "listar_procesos_pesados", "auditar_puertos_locales"},
         "archivo": {"explorar_directorio", "leer_codigo_fuente", "estado_git", "indexar_proyecto_local"},
         "pantalla": {"ver_pantalla_actual"},
-        "web": {"buscar_en_internet", "leer_documentacion_web"},
+        "web": {"investigar_tema", "buscar_en_internet", "leer_documentacion_web"},
         "memoria": {"guardar_recuerdo_importante", "buscar_en_memoria_profunda", "buscar_en_boveda"},
         "nota": {"crear_o_actualizar_nota", "registrar_en_bitacora_diaria", "buscar_en_boveda"},
         "program": {"autoprogramar_habilidad"},
@@ -112,7 +117,7 @@ def obtener_herramientas_relevantes(prompt: str, es_local: bool) -> list | None:
         "recordatorio": {"programar_recordatorio"},
         "navegador": {"automatizar_navegador"},
         "habilidad": {"listar_habilidades_disponibles", "autoprogramar_habilidad"},
-        "aplicacion": {"abrir_aplicacion"},
+        "aplicacion": {"abrir_aplicacion", "listar_aplicaciones"},
     }
     selected: set[str] = set()
     priority: list[str] = []
@@ -120,7 +125,8 @@ def obtener_herramientas_relevantes(prompt: str, es_local: bool) -> list | None:
         "hardware": ("hardware", "consumo", "pc", "cpu", "ram", "gpu", "vram", "proceso", "puerto", "red"),
         "archivo": ("archivo", "carpeta", "código", "codigo", "git", "proyecto", "pdf", "csv"),
         "pantalla": ("pantalla", "monitor", "ver", "captura", "ocr"),
-        "web": ("internet", "web", "documentación", "documentacion", "url", "api"),
+        "web": ("internet", "web", "documentación", "documentacion", "url", "api", "investiga", "investigar",
+                "averigua", "resumen", "resume", "resúmeme", "resumeme", "noticia", "noticias"),
         "memoria": ("recuerdo", "memoria", "preferencia", "aprendiste"),
         "nota": ("nota", "bóveda", "boveda", "diario", "obsidian"),
         "program": ("no sabes", "forja", "autoprograma", "programa una herramienta", "habilidad"),
@@ -128,11 +134,12 @@ def obtener_herramientas_relevantes(prompt: str, es_local: bool) -> list | None:
         "recordatorio": ("recordatorio", "avísame", "avisame", "minutos"),
         "navegador": ("navegador", "browser", "formulario", "página", "pagina", "playwright"),
         "habilidad": ("habilidad", "capacidad", "puedes hacer", "sabes hacer", "no sabes", "aprende"),
-        "aplicacion": ("abre", "abrir", "aplicación", "aplicacion"),
+        "aplicacion": ("abre", "abrir", "aplicación", "aplicacion", "app", "programa", "instalado", "instalada"),
     }
     for group, words in keywords.items():
+        # Acepta el plural: "procesos", "habilidades", "puertos".
         if any(
-            (word in text if " " in word else re.search(rf"(?<!\w){re.escape(word)}(?!\w)", text))
+            (word in text if " " in word else re.search(rf"(?<!\w){re.escape(word)}(?:s|es)?(?!\w)", text))
             for word in words
         ):
             selected.update(groups[group])
@@ -143,10 +150,12 @@ def obtener_herramientas_relevantes(prompt: str, es_local: bool) -> list | None:
     if any(word in text for word in ("excel", "xlsx", "scraping", "scraper", "indicador", "convierte", "convertir")):
         selected.add("autoprogramar_habilidad")
         priority.insert(0, "autoprogramar_habilidad")
-    if not selected:
+    related_custom = _habilidades_relacionadas(text)
+    if not selected and not related_custom:
         # Una petición operativa no cubierta debe poder activar el Tool Forge.
-        action_words = ("haz", "hacer", "crea", "convierte", "calcula", "automatiza", "descarga", "exporta", "procesa", "analiza")
-        if any(word in text for word in action_words):
+        action_words = ("haz", "hacer", "crea", "convierte", "calcula", "cuenta", "cuantos", "cuántos",
+                        "automatiza", "descarga", "exporta", "procesa", "analiza", "genera", "extrae")
+        if any(re.search(rf"(?<!\w){re.escape(word)}", text) for word in action_words):
             selected = {"autoprogramar_habilidad"}
             priority = ["autoprogramar_habilidad"]
         else:
@@ -157,7 +166,38 @@ def obtener_herramientas_relevantes(prompt: str, es_local: bool) -> list | None:
     if "portapapeles" in text or "copié" in text or "copie" in text:
         ordered_names.sort(key=lambda name: 0 if "portapapeles" in name else 1)
     selected_list = [schema for name in ordered_names if name in selected for schema in TOOL_SCHEMAS if schema["function"]["name"] == name]
-    return selected_list[:4]
+    # Las habilidades aprendidas que encajan con la petición van primero: son
+    # más específicas que las integradas.
+    visible = related_custom[:3]
+    visible_names = {schema["function"]["name"] for schema in visible}
+    visible.extend(schema for schema in selected_list if schema["function"]["name"] not in visible_names)
+    return visible[:5]
+
+
+def _sin_acentos(value: str) -> str:
+    import unicodedata
+    return unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode().lower()
+
+
+_STOPWORDS = {"para", "como", "desde", "hasta", "sobre", "entre", "texto", "habilidad", "generada", "devuelve",
+              "funcion", "archivo", "dado", "datos", "valor", "este", "esta", "cual", "cuales"}
+
+
+def _habilidades_relacionadas(text: str) -> list[dict]:
+    """Habilidades aprendidas cuyo nombre o descripción comparte raíces con la petición."""
+    words = {word[:5] for word in re.findall(r"[a-z]{4,}", _sin_acentos(text)) if word not in _STOPWORDS}
+    if not words:
+        return []
+    related = []
+    for schema in TOOL_SCHEMAS:
+        function = schema["function"]
+        if function["name"] in _BUILTIN_TOOL_NAMES:
+            continue
+        vocabulary = _sin_acentos(function["name"].replace("_", " ") + " " + function.get("description", ""))
+        roots = {word[:5] for word in re.findall(r"[a-z]{4,}", vocabulary) if word not in _STOPWORDS}
+        if words & roots:
+            related.append(schema)
+    return related
 
 
 def register_custom_tool(name: str, description: str, function: object) -> None:

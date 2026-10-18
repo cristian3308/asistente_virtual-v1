@@ -4,3 +4,7 @@ __pycache__/
 .env
 data/
 .opencode/node_modules/
+
+# Bóveda personal de Obsidian: notas privadas, no se versionan.
+cerebro_asistente/
+avatar/node_modules/

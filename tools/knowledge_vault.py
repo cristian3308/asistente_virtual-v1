@@ -15,11 +15,16 @@ def _safe_name(value: str) -> str:
 def crear_o_actualizar_nota(titulo: str, contenido: str, carpeta: str = "Proyectos", tags: str = "") -> str:
     folder = VAULT_PATH / _safe_name(carpeta)
     folder.mkdir(parents=True, exist_ok=True)
-    path = folder / f"{_safe_name(titulo)}.md"
+    base = folder / f"{_safe_name(titulo)}.md"
+    path = base
+    suffix = 2
+    while path.exists():
+        path = folder / f"{base.stem}-{suffix}{base.suffix}"
+        suffix += 1
     tag_line = " ".join(f"#{_safe_name(tag)}" for tag in tags.replace(",", " ").split() if tag.strip())
     text = f"# {titulo.strip()}\n\n*Actualizado: {datetime.now():%Y-%m-%d %H:%M}*\n\n{tag_line}\n\n{contenido.strip()}\n"
     path.write_text(text, encoding="utf-8")
-    return f"Nota guardada: {path}"
+    return f"Nota nueva guardada sin sobrescribir: {path}"
 
 
 def buscar_en_boveda(consulta: str) -> str:

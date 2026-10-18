@@ -1,0 +1,19 @@
+{
+  "name": "asistente-avatar",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "robot-heads": "0.3.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "4.3.4",
+    "electron": "33.2.1",
+    "vite": "5.4.11"
+  }
+}

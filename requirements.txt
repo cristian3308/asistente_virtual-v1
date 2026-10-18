@@ -12,9 +12,11 @@ pygame
 mss
 pillow
 rapidocr-onnxruntime
-duckduckgo-search
+ddgs
 beautifulsoup4
 httpx
+sentence-transformers
 python-telegram-bot
 pyperclip
 playwright
+pywebview==5.3.2

@@ -1,11 +1,13 @@
-"""Forja de herramientas Python con validación estática e importación en caliente.
+"""Forja de herramientas Python con validación estática, pruebas aisladas y registro en caliente.
 
-El código generado nunca se ejecuta antes de pasar las comprobaciones AST y las
-dependencias externas siempre requieren confirmación explícita.
+El código generado nunca se ejecuta antes de pasar las comprobaciones AST. Tras
+validarlo, sus pruebas corren en el worker aislado (sin entorno ni archivos) y
+solo se guarda e instala con confirmación explícita del usuario.
 """
 from __future__ import annotations
 
 import ast
+import contextlib
 import contextvars
 import hashlib
 import inspect
@@ -49,6 +51,29 @@ _FORBIDDEN_ATTRIBUTES = {
     "popen", "system", "run", "call", "Popen", "open", "chmod", "touch", "mkdir",
     "symlink_to", "hardlink_to", "link_to", "read_text", "read_bytes",
 }
+
+
+_ui_pause = contextvars.ContextVar("ui_pause", default=None)
+# Nombre de la última habilidad instalada, para que el cerebro la ofrezca en el mismo turno.
+ULTIMA_HABILIDAD: str | None = None
+
+
+def set_ui_pause(factory):
+    """Registra un context manager que pausa la UI en vivo mientras se pregunta al usuario."""
+    return _ui_pause.set(factory)
+
+
+def reset_ui_pause(token) -> None:
+    _ui_pause.reset(token)
+
+
+def confirmar(pregunta: str, mostrar=None) -> bool:
+    """Pregunta sí/no sin que la animación de la consola tape el texto."""
+    factory = _ui_pause.get()
+    with factory() if factory else contextlib.nullcontext():
+        if mostrar:
+            mostrar()
+        return Confirm.ask(pregunta, default=False)
 
 
 def confirmation_allowed() -> bool:
@@ -206,36 +231,33 @@ def _register(name: str, description: str, function: object) -> None:
     register_custom_tool(name, description, function)
 
 
-def _forge_response(result: str, name: str, code: str, origin: str, model: str) -> str:
-    """No presenta como aprobada una habilidad que el usuario rechazó."""
-    if "cargada y registrada en caliente" not in result:
-        return result
-    path = CUSTOM_DIR / f"{name}.py"
-    return f"{result}\nRuta: {path}\n\nCódigo generado:\n{code}\n\nConfirmado: aparece en /habilidades. Motor: {origin} ({model})"
-
-
 def crear_y_cargar_herramienta(
     nombre_funcion: str,
     descripcion: str,
     codigo_python: str,
     paquetes_pip: list[str] | None = None,
+    informe_pruebas: list[str] | None = None,
 ) -> str:
     """Valida y carga una habilidad solo tras confirmación interactiva explícita."""
+    global ULTIMA_HABILIDAD
     paquetes_pip = paquetes_pip or []
     _validate(nombre_funcion, codigo_python)
     if not confirmation_allowed():
         return "Habilidad rechazada: las confirmaciones solo están disponibles desde la consola local."
-    Console().print(Syntax(codigo_python, "python", line_numbers=True, theme="monokai"))
-    if not Confirm.ask(
-        f"¿Autorizas guardar e importar la habilidad generada '{nombre_funcion}'?",
-        default=False,
-    ):
+
+    def mostrar() -> None:
+        console = Console()
+        console.print(Syntax(codigo_python, "python", line_numbers=True, theme="monokai"))
+        if informe_pruebas:
+            console.print("[bold]Pruebas en el entorno aislado:[/bold]\n" + "\n".join(informe_pruebas))
+
+    if not confirmar(f"¿Autorizas guardar e importar la habilidad generada '{nombre_funcion}'?", mostrar):
         return "Habilidad rechazada: no se guardó ni se ejecutó código generado."
     if paquetes_pip:
         clean_packages = [p for p in paquetes_pip if re.fullmatch(r"[A-Za-z0-9_.-]+(?:==[A-Za-z0-9_.-]+)?", p)]
         if len(clean_packages) != len(paquetes_pip):
             return "Paquetes rechazados: nombre inválido."
-        if not Confirm.ask(f"¿Instalar dependencias para {nombre_funcion}: {', '.join(clean_packages)}?", default=False):
+        if not confirmar(f"¿Instalar dependencias para {nombre_funcion}: {', '.join(clean_packages)}?"):
             return "Instalación cancelada; no se creó la habilidad."
         pip_path = settings.ROOT_DIR / ".venv" / "Scripts" / "pip.exe"
         result = subprocess.run([str(pip_path), "install", *clean_packages], shell=False, capture_output=True, text=True, timeout=300)
@@ -255,11 +277,12 @@ def crear_y_cargar_herramienta(
         "approved": True,
     })
     _save_manifest(items)
+    ULTIMA_HABILIDAD = nombre_funcion
     return f"Habilidad '{nombre_funcion}' validada, cargada y registrada en caliente."
 
 
 def cargar_habilidades_guardadas() -> list[str]:
-    """Carga habilidades persistidas solo cuando el usuario lo solicita explícitamente."""
+    """Carga al arrancar las habilidades aprobadas; las demás piden confirmación."""
     loaded = []
     for path in sorted(CUSTOM_DIR.glob("*.py")) if CUSTOM_DIR.exists() else []:
         if path.name == "__init__.py":
@@ -270,12 +293,17 @@ def cargar_habilidades_guardadas() -> list[str]:
             item = next((x for x in _manifest() if x.get("name") == name), {})
             digest = hashlib.sha256(code.encode("utf-8")).hexdigest()
             trusted = item.get("approved") is True and str(item.get("sha256", "")).lower() == digest
-            if not trusted:
-                _validate(name, code)
+            if trusted:
+                # La aprobación persistida incluye la huella del archivo.
+                function = _load(name, path)
+                _register(name, item.get("description", f"Habilidad aprendida: {name}"), function)
+                loaded.append(name)
+                continue
+            _validate(name, code)
             if not confirmation_allowed():
                 continue
-            Console().print(Syntax(code, "python", line_numbers=True, theme="monokai"))
-            if not Confirm.ask(f"¿Autorizas importar la habilidad guardada '{name}'?", default=False):
+            mostrar = lambda code=code: Console().print(Syntax(code, "python", line_numbers=True, theme="monokai"))
+            if not confirmar(f"¿Autorizas importar la habilidad guardada '{name}'?", mostrar):
                 continue
             function = _load(name, path)
             _register(name, item.get("description", f"Habilidad aprendida: {name}"), function)
@@ -332,59 +360,200 @@ def _extraer_codigo_forjado(raw: str, nombre_sugerido: str) -> tuple[str, str, s
     return name, str(description), code
 
 
-def forjar_habilidad_desde_instruccion(instruccion: str) -> str:
-    """Genera una habilidad desde `/autoprogramar` y la instala de forma verificable."""
-    from core.router import ModelRouter
-    router = ModelRouter()
-    suggested = "habilidad_generada"
-    match = re.search(r"(?:llamada|llamado|llamada|nombre)\s+([A-Za-z_]\w*)", instruccion, re.IGNORECASE)
-    if not match:
-        match = re.search(r"herramienta\s+([A-Za-z_]\w*)", instruccion, re.IGNORECASE)
-    if match:
-        suggested = match.group(1)
-    prompt = (
-        "Devuelve EXCLUSIVAMENTE un JSON válido con las claves nombre_funcion, descripcion y codigo_python. "
-        "codigo_python debe contener una función Python completa, tipada, con docstring y retorno str. "
-        "Usa por defecto la firma base ruta_archivo: str = '', path: str = '', file_path: str = '', **kwargs y la primera ruta no vacía cuando aplique. "
-        "No uses subprocess, os.system, eval, exec, borrado, formateo, credenciales ni comandos destructivos. "
-        f"La función debe llamarse {suggested}. Instrucción: {instruccion}"
-    )
-    responses = []
-    if settings.cloud_configurado():
-        responses.append((router.cloud, router.cloud_model, "Cloud"))
-    responses.append((router.local, settings.MODEL_LOCAL, "Local"))
-    errors = []
-    for client, model, origin in responses:
+_FORGE_PROMPT = """Eres el generador de habilidades de un asistente personal en Windows.
+Responde SOLO con dos bloques de código, sin texto adicional:
+
+1) Un bloque ```python con el módulo completo.
+2) Un bloque ```json con este objeto:
+   {{"nombre_funcion": "snake_case en español",
+     "descripcion": "una frase en español con las palabras que usaría el usuario para pedirla",
+     "pruebas": [{{"argumentos": {{"param": "valor"}}, "contiene": "texto que DEBE aparecer en el resultado"}}]}}
+   Incluye de 2 a 4 pruebas.
+
+Reglas obligatorias del código:
+- Una sola función pública `def NOMBRE(...) -> str` con parámetros con nombre, tipados (str, int, float o bool)
+  y con valor por defecto ('' , 0, 0.0 o False). Sin *args ni **kwargs.
+- Solo puedes importar: datetime, json, re, csv, hashlib, pathlib. Los imports van al inicio del archivo.
+- Prohibido: leer o escribir archivos, red, os, sys, subprocess, eval, exec, open, getattr, globals, vars,
+  bucles while, decoradores, clases, atributos que empiecen por "_" y range() mayor que 10000.
+- Fuera de la función solo puede haber imports y el docstring del módulo.
+- Python 3.10: dentro de las llaves de una f-string no puede haber barras invertidas.
+- Valida la entrada: ante datos inválidos devuelve un mensaje claro en español, nunca lances excepciones.
+- Devuelve siempre texto en español. Las pruebas deben poder comprobarse con el texto exacto de "contiene".
+
+Si el objetivo NO se puede cumplir con estas reglas (necesita leer archivos o carpetas, el registro de Windows,
+comandos o PowerShell, internet, abrir programas o datos del sistema), no escribas código: responde solo
+```json
+{{"imposible": "motivo breve en español"}}
+```
+
+Nombre sugerido: {nombre}
+Objetivo del usuario: {objetivo}"""
+
+_FALLOS_SANDBOX = ("Error en habilidad aislada", "Habilidad cancelada", "Habilidad terminó sin resultado")
+# strict=False admite saltos de línea literales dentro de cadenas JSON, algo que
+# los modelos pequeños hacen a menudo al incrustar código.
+_JSON_TOLERANTE = json.JSONDecoder(strict=False)
+
+
+def _sin_acentos(value: str) -> str:
+    import unicodedata
+    return unicodedata.normalize("NFKD", str(value)).encode("ascii", "ignore").decode().lower()
+
+
+def _primer_objeto_json(text: str) -> dict | None:
+    for match in re.finditer(r"\{", text):
         try:
-            # OpenCode Go exige temperature=1 para este modelo; Ollama también
-            # funciona correctamente con el valor por defecto.
-            kwargs = {"model": model, "messages": [{"role": "user", "content": prompt}], "temperature": 1, "max_tokens": 1600}
-            if origin == "Local":
-                kwargs["extra_body"] = {**settings.OLLAMA_EXTRA_BODY, "think": False}
-            response = client.chat.completions.create(**kwargs)
-            name, description, code = _extraer_codigo_forjado(response.choices[0].message.content or "", suggested)
-            result = crear_y_cargar_herramienta(name, description, code)
-            return _forge_response(result, name, code, origin, model)
-        except Exception as exc:
-            # Reintento de reparación: algunos modelos locales devuelven JSON
-            # truncado o mezclan explicación con el código solicitado.
+            value, _ = _JSON_TOLERANTE.raw_decode(text[match.start():])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            return value
+    return None
+
+
+def _motivo_imposible(raw: str) -> str | None:
+    """El modelo declara que el objetivo necesita acceso al sistema que las habilidades no tienen."""
+    text = re.sub(r"<think>.*?</think>", "", raw or "", flags=re.DOTALL)
+    if "```python" in text:
+        return None
+    meta = _primer_objeto_json(text) or {}
+    motivo = meta.get("imposible")
+    return str(motivo).strip() if motivo else None
+
+
+def _extraer_propuesta(raw: str, nombre_sugerido: str) -> dict:
+    """Extrae nombre, descripción, código y pruebas de la respuesta del modelo."""
+    text = re.sub(r"<think>.*?</think>", "", raw or "", flags=re.DOTALL).strip()
+    if not text:
+        raise ValueError("La respuesta llegó vacía.")
+    python_block = re.search(r"```python\s*\n(.*?)```", text, re.DOTALL | re.IGNORECASE)
+    json_block = re.search(r"```json\s*\n(.*?)```", text, re.DOTALL | re.IGNORECASE)
+    meta = _primer_objeto_json(json_block.group(1) if json_block else text) or {}
+    code = python_block.group(1) if python_block else meta.get("codigo_python") or meta.get("code")
+    if not isinstance(code, str) or not code.strip():
+        name, description, code = _extraer_codigo_forjado(text, nombre_sugerido)
+        return {"nombre": name, "descripcion": description, "codigo": code, "pruebas": []}
+    code = re.sub(r"^```(?:python)?\s*|\s*```$", "", code.strip())
+    definitions = [node.name for node in ast.parse(code).body if isinstance(node, ast.FunctionDef)]
+    if not definitions:
+        raise ValueError("El código no contiene una función def.")
+    name = str(meta.get("nombre_funcion") or nombre_sugerido)
+    if name not in definitions:
+        name = definitions[0]
+    tests = meta.get("pruebas") if isinstance(meta.get("pruebas"), list) else []
+    return {"nombre": name, "descripcion": str(meta.get("descripcion") or f"Habilidad {name}"),
+            "codigo": code, "pruebas": [t for t in tests if isinstance(t, dict)][:4]}
+
+
+def _probar_en_aislado(nombre: str, codigo: str, pruebas: list[dict]) -> tuple[bool, list[str]]:
+    """Ejecuta las pruebas propuestas en el worker aislado; el código ya pasó `_validate`."""
+    from tools import registry
+
+    if not pruebas:
+        return False, ["✗ No incluiste pruebas: agrega 2 a 4 en la clave 'pruebas'."]
+    folder = settings.DATA_DIR / "forja_tmp"
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{nombre}.py"
+    path.write_text(codigo.rstrip() + "\n", encoding="utf-8")
+    proxy = _load(nombre, path)
+    ok, report = True, []
+    for test in pruebas:
+        arguments = test.get("argumentos") if isinstance(test.get("argumentos"), dict) else {}
+        expected = str(test.get("contiene", ""))
+        result = str(registry._invoke_custom_with_timeout(proxy, registry._invoke_arguments(proxy, arguments), timeout=10))
+        passed = not result.startswith(_FALLOS_SANDBOX) and _sin_acentos(expected) in _sin_acentos(result)
+        ok &= passed
+        report.append(f"{'✓' if passed else '✗'} {nombre}({json.dumps(arguments, ensure_ascii=False)}) → {result[:160]!r}"
+                      + ("" if passed else f"  (esperaba que contuviera {expected!r})"))
+    return ok, report
+
+
+def _motores_de_forja(router) -> list[tuple[object, str, str, dict]]:
+    """La nube programa mejor; el modelo local queda como respaldo sin conexión."""
+    motores = []
+    if settings.cloud_configurado():
+        # Programar puede tardar varios minutos con modelos que razonan; nunca reintentar
+        # en silencio porque cada intento se factura.
+        cloud = router.cloud.with_options(timeout=300.0, max_retries=0)
+        motores.extend((cloud, model, "Cloud", {}) for model in settings.FORGE_MODELS)
+    if settings.ollama_activo():
+        motores.append((router.local, settings.MODEL_LOCAL, "Local",
+                        {"extra_body": {**settings.OLLAMA_EXTRA_BODY, "think": False}}))
+    return motores
+
+
+def _nombre_libre(nombre: str) -> str:
+    """Evita que una habilidad aprendida choque con una integrada (que no se registraría)."""
+    from tools.registry import _BUILTIN_TOOL_NAMES
+    nombre = nombre if re.fullmatch(r"[A-Za-z_]\w*", nombre or "") else "habilidad_generada"
+    return f"{nombre}_aprendida" if nombre in _BUILTIN_TOOL_NAMES else nombre
+
+
+def forjar_con_pruebas(objetivo: str, nombre_sugerido: str = "habilidad_generada", intentos: int = 3,
+                       max_llamadas: int = 5) -> str:
+    """Genera, valida, prueba y repara una habilidad; la instala solo si el usuario la aprueba."""
+    from core.router import ModelRouter
+
+    router = ModelRouter()
+    nombre_sugerido = _nombre_libre(nombre_sugerido)
+    errores = []
+    llamadas = 0
+    for client, model, origin, extra in _motores_de_forja(router):
+        messages = [{"role": "user", "content": _FORGE_PROMPT.format(nombre=nombre_sugerido, objetivo=objetivo)}]
+        for intento in range(1, intentos + 1):
+            if llamadas >= max_llamadas:
+                break
+            llamadas += 1
             try:
-                repair_prompt = (
-                    f"Devuelve SOLO código Python válido, sin JSON, markdown ni explicación. Define "
-                    f"def {suggested}(ruta_archivo: str = '', path: str = '', file_path: str = '', **kwargs) -> str. "
-                    f"Objetivo: {instruccion}"
-                )
-                repair_kwargs = {"model": model, "messages": [{"role": "user", "content": repair_prompt}], "temperature": 1, "max_tokens": 1600}
-                if origin == "Local":
-                    repair_kwargs["extra_body"] = {**settings.OLLAMA_EXTRA_BODY, "think": False}
-                repaired = client.chat.completions.create(**repair_kwargs)
-                repaired_text = repaired.choices[0].message.content or ""
-                name, description, code = _extraer_codigo_forjado(repaired_text, suggested)
-                result = crear_y_cargar_herramienta(name, description, code)
-                return _forge_response(result, name, code, origin, model)
-            except Exception as repair_exc:
-                errors.append(f"{origin}: {type(exc).__name__}: {exc}; reparación: {type(repair_exc).__name__}: {repair_exc}")
-    return "No se pudo forjar la habilidad: " + " | ".join(errors)
+                # OpenCode Go exige temperature=1 en algunos modelos; Ollama lo acepta igual.
+                response = client.chat.completions.create(model=model, messages=messages, temperature=1,
+                                                          max_tokens=8000 if origin == "Cloud" else 2000, **extra)
+                raw = response.choices[0].message.content or ""
+            except Exception as exc:
+                errores.append(f"{origin}: {type(exc).__name__}: {exc}")
+                break
+            imposible = _motivo_imposible(raw)
+            if imposible:
+                from tools.registry import obtener_herramientas_relevantes
+                utiles = [t["function"]["name"] for t in obtener_herramientas_relevantes(objetivo, True) or []
+                          if t["function"]["name"] != "autoprogramar_habilidad"]
+                sugerencia = (f" Herramientas integradas que sí sirven: {', '.join(utiles)}. Úsalas ahora."
+                              if utiles else " Explícale a Cristhian qué falta.")
+                return (f"No puedo aprender esto como habilidad: {imposible} Las habilidades aprendidas solo "
+                        "calculan y trabajan con texto; no acceden a archivos, registro, comandos ni internet."
+                        + sugerencia)
+            try:
+                propuesta = _extraer_propuesta(raw, nombre_sugerido)
+                propuesta["nombre"] = _nombre_libre(propuesta["nombre"])
+                _validate(propuesta["nombre"], propuesta["codigo"])
+                ok, informe = _probar_en_aislado(propuesta["nombre"], propuesta["codigo"], propuesta["pruebas"])
+                problema = None if ok else "Fallaron estas pruebas:\n" + "\n".join(informe)
+            except Exception as exc:
+                informe, problema = [], f"{type(exc).__name__}: {exc}"
+            if problema is None:
+                informe.append(f"Motor: {origin} ({model}) · intento {intento}/{intentos}")
+                resultado = crear_y_cargar_herramienta(propuesta["nombre"], propuesta["descripcion"],
+                                                       propuesta["codigo"], informe_pruebas=informe)
+                if "cargada y registrada en caliente" not in resultado:
+                    return resultado
+                firma = f"{propuesta['nombre']}{_signature_from_ast(next(n for n in ast.parse(propuesta['codigo']).body if isinstance(n, ast.FunctionDef) and n.name == propuesta['nombre']))}"
+                return (f"Habilidad aprendida y lista: {firma}. Superó {len(propuesta['pruebas'])} pruebas en el entorno aislado. "
+                        f"Úsala ahora mismo para responder la petición original del usuario.")
+            errores.append(f"{origin} intento {intento}: {problema[:300]}")
+            if raw.strip():
+                messages.append({"role": "assistant", "content": raw})
+            messages += [{"role": "user", "content": f"Tu propuesta no sirve todavía. {problema}\n"
+                                                     "Corrige el problema y devuelve otra vez los dos bloques (python y json), cumpliendo todas las reglas."}]
+    if not errores:
+        return "No se pudo forjar la habilidad: no hay ningún motor disponible (inicia Ollama o configura la API)."
+    return "No se pudo forjar la habilidad tras varios intentos:\n- " + "\n- ".join(errores[-4:])
+
+
+def forjar_habilidad_desde_instruccion(instruccion: str) -> str:
+    """Genera una habilidad desde `/autoprogramar` con pruebas automáticas."""
+    match = re.search(r"(?:llamada|llamado|nombre|herramienta)\s+([A-Za-z_]\w*)", instruccion, re.IGNORECASE)
+    return forjar_con_pruebas(instruccion, match.group(1) if match else "habilidad_generada")
 
 
 def autoprogramar_habilidad(
@@ -398,10 +567,10 @@ def autoprogramar_habilidad(
     descripcion: str | None = None,
     **_kwargs,
 ) -> str:
-    """Forja una habilidad aceptando los nombres de argumentos que suelen producir los modelos locales.
+    """Aprende una habilidad nueva; acepta los nombres de argumentos que suelen producir los modelos.
 
-    Si el modelo ya envió código (`funcion`, `codigo_python` o `code`), se valida
-    y registra directamente sin hacer otra llamada al proveedor cloud.
+    Si el modelo ya envió código se valida y se pide confirmación; si no, se
+    forja con pruebas automáticas y reparación.
     """
     nombre_funcion = nombre_funcion or nombre_habilidad or name
     codigo_entregado = codigo_python or funcion or code
@@ -411,31 +580,10 @@ def autoprogramar_habilidad(
             nombre_funcion = next(node.name for node in tree.body if isinstance(node, ast.FunctionDef))
         except (SyntaxError, StopIteration):
             return "No se pudo inferir el nombre de la función entregada."
-    if not nombre_funcion:
-        return "Falta nombre_funcion (también acepto nombre_habilidad o name)."
-    objetivo = objetivo or descripcion or f"Habilidad {nombre_funcion}"
+    objetivo = objetivo or descripcion or ""
     if codigo_entregado:
-        return crear_y_cargar_herramienta(
-            nombre_funcion, descripcion or objetivo, codigo_entregado
-        )
-
-    """Solicita al modelo Cloud código para un objetivo y lo instala tras validarlo."""
-    from core.router import ModelRouter
-    router = ModelRouter()
-    prompt = (
-        "Escribe una única herramienta Python segura para Windows. Devuelve SOLO código Python, sin markdown. "
-        f"Debe definir exactamente def {nombre_funcion}(ruta_archivo: str = '', path: str = '', file_path: str = '', **kwargs) -> str y devolver un resultado textual. "
-        "Para rutas usa la primera opción no vacía entre ruta_archivo, path, file_path y kwargs. "
-        "No uses subprocess, os.system, eval, exec, borrado, formateo ni acceso a secretos. "
-        f"Objetivo del usuario: {objetivo}"
-    )
-    try:
-        response = router.cloud.chat.completions.create(
-            model=router.cloud_model, messages=[{"role": "user", "content": prompt}], temperature=1
-        )
-        code = response.choices[0].message.content or ""
-        match = re.search(r"```(?:python)?\s*(.*?)```", code, re.DOTALL | re.IGNORECASE)
-        code = match.group(1).strip() if match else code.strip()
-        return crear_y_cargar_herramienta(nombre_funcion, objetivo, code)
-    except Exception as exc:
-        return f"No se pudo forjar la habilidad: {type(exc).__name__}: {exc}"
+        return crear_y_cargar_herramienta(nombre_funcion, descripcion or objetivo or f"Habilidad {nombre_funcion}",
+                                          codigo_entregado)
+    if not objetivo and not nombre_funcion:
+        return "Falta el objetivo: describe qué debe hacer la habilidad."
+    return forjar_con_pruebas(objetivo or f"Habilidad {nombre_funcion}", nombre_funcion or "habilidad_generada")

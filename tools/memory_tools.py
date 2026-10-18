@@ -18,12 +18,17 @@ def get_vector_memory() -> VectorMemory:
 
 
 def guardar_recuerdo_importante(dato: str, categoria: str) -> str:
+    # También al perfil: así el dato llega en cada respuesta, no solo si se busca.
+    from memory import perfil
+    perfil.guardar("nota", dato, (categoria or "nota").strip().lower(), fuente="guardado por el asistente", confianza=0.8)
     return get_vector_memory().remember(dato, categoria)
 
 
 def buscar_en_memoria_profunda(consulta: str) -> str:
     vector = get_vector_memory()
-    personal = vector.search(consulta, "personal")
+    # Las versiones anteriores guardaban fallos de herramientas como recuerdos.
+    personal = [item for item in vector.search(consulta, "personal", 8)
+                if item["metadata"].get("categoria") != "autoevolucion"][:5]
     documents = vector.search(consulta, "documents")
     lines = [f"- [Recuerdo · {item['metadata'].get('categoria', 'general')}] {item['text']}" for item in personal]
     lines.extend(

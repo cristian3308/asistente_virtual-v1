@@ -8,7 +8,7 @@ from pathlib import Path
 import psutil
 from rich.prompt import Confirm
 from config import settings
-from core.self_coder import confirmation_allowed
+from core.self_coder import confirmar, confirmation_allowed
 
 
 def auditar_puertos_locales() -> str:
@@ -82,7 +82,7 @@ def ejecutar_powershell_seguro(comando: str) -> str:
     if not safe:
         if not confirmation_allowed():
             return "Requiere consola local: PowerShell no se ejecuta desde Telegram."
-        if not Confirm.ask(f"⚠️ ¿Autorizas ejecutar en PowerShell: {command}?", default=False):
+        if not confirmar(f"⚠️ ¿Autorizas ejecutar en PowerShell: {command}?"):
             return "Ejecución cancelada."
     try:
         result = subprocess.run(

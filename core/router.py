@@ -31,7 +31,10 @@ class ModelRouter:
                 "User-Agent": settings.USER_AGENT,
                 "x-opencode-session": settings.SESSION_ID,
             },
-            timeout=60.0,
+            # Los modelos con razonamiento tardan más de 60 s. Sin reintentos del SDK:
+            # cada reintento tras un timeout se factura aunque la respuesta se descarte.
+            timeout=150.0,
+            max_retries=0,
         )
         self.local = OpenAI(base_url=settings.LOCAL_BASE_URL, api_key="ollama", timeout=60.0)
 
@@ -56,12 +59,34 @@ class ModelRouter:
             return f"Modelo cloud seleccionado: {self.cloud_model}"
         return "Modelo no reconocido. Usa codigo, razonamiento, rapido o local."
 
-    def candidates(self, prompt: str) -> list[Motor]:
+    def _local_model(self) -> str:
+        key = getattr(self, "local_model_key", "") if self.local_selected else ""
+        return settings.LOCAL_TURBO_MODELS.get(key, settings.LOCAL_MODEL_ALIASES.get(key, settings.MODEL_LOCAL))
+
+    @staticmethod
+    def _with_tools_for(motor: Motor, prompt: str, kwargs: dict) -> dict:
+        """Filtra el inventario completo por motor; respeta listas explícitas y omite las vacías."""
+        call_kwargs = dict(kwargs)
+        if "tools" not in call_kwargs:
+            return call_kwargs
+        from tools.registry import TOOL_SCHEMAS, obtener_herramientas_relevantes
+        if call_kwargs["tools"] is TOOL_SCHEMAS:
+            call_kwargs["tools"] = obtener_herramientas_relevantes(prompt, motor.is_local)
+        if not call_kwargs["tools"]:
+            call_kwargs.pop("tools", None)
+            call_kwargs.pop("tool_choice", None)
+        return call_kwargs
+
+    def candidates(self, prompt: str, prefer_cloud: bool = False) -> list[Motor]:
         local_ok, cloud_ok = settings.ollama_activo(), settings.cloud_configurado()
+        if prefer_cloud and cloud_ok:
+            # Escalado: el local ya no pudo con este turno; queda como respaldo.
+            ordered = [Motor(self.cloud, self.cloud_model, "Cloud")]
+            if local_ok:
+                ordered.append(Motor(self.local, self._local_model(), "Local"))
+            return ordered
         if self.local_selected:
-            key = getattr(self, "local_model_key", "")
-            model = settings.LOCAL_TURBO_MODELS.get(key, settings.LOCAL_MODEL_ALIASES.get(key, settings.MODEL_LOCAL))
-            ordered = [Motor(self.local, model, "Local")]
+            ordered = [Motor(self.local, self._local_model(), "Local")]
             if cloud_ok:
                 ordered.append(Motor(self.cloud, self.cloud_model, "Cloud"))
         else:
@@ -174,41 +199,35 @@ class ModelRouter:
             payload.setdefault("max_tokens", 512)
         return payload
 
-    def complete(self, prompt: str, **kwargs):
+    def complete(self, prompt: str, prefer_cloud: bool = False, **kwargs):
         errors = []
-        for motor in self.candidates(prompt):
+        for motor in self.candidates(prompt, prefer_cloud):
             try:
-                call_kwargs = dict(kwargs)
-                if "tools" in call_kwargs:
-                    if call_kwargs["tools"]:
-                        from tools.registry import obtener_herramientas_relevantes
-                        call_kwargs["tools"] = obtener_herramientas_relevantes(prompt, motor.is_local)
-                        if call_kwargs["tools"] is None:
-                            call_kwargs.pop("tool_choice", None)
+                call_kwargs = self._with_tools_for(motor, prompt, kwargs)
                 result = motor.client.chat.completions.create(model=motor.model, **self._payload_for(motor, call_kwargs))
                 return result, motor
             except Exception as exc:  # fallback ante errores de red/modelo/API
                 errors.append(f"{motor.name} ({motor.model}): {exc}")
         raise RuntimeError("Fallaron todos los motores: " + " | ".join(errors))
 
-    def stream(self, prompt: str, **kwargs):
+    def stream(self, prompt: str, prefer_cloud: bool = False, **kwargs):
         """Devuelve `(chunk, motor)` mientras llega cada fragmento del proveedor."""
         errors = []
-        for motor in self.candidates(prompt):
+        for motor in self.candidates(prompt, prefer_cloud):
+            started = False
             try:
-                call_kwargs = dict(kwargs)
-                if "tools" in call_kwargs:
-                    if call_kwargs["tools"]:
-                        from tools.registry import obtener_herramientas_relevantes
-                        call_kwargs["tools"] = obtener_herramientas_relevantes(prompt, motor.is_local)
-                        if call_kwargs["tools"] is None:
-                            call_kwargs.pop("tool_choice", None)
+                call_kwargs = self._with_tools_for(motor, prompt, kwargs)
                 stream = motor.client.chat.completions.create(
                     model=motor.model, stream=True, **self._payload_for(motor, call_kwargs)
                 )
                 for chunk in stream:
+                    started = True
                     yield chunk, motor
                 return
             except Exception as exc:
+                if started:
+                    # El consumidor ya acumuló fragmentos de este motor; cambiar
+                    # de motor mezclaría dos respuestas distintas.
+                    raise RuntimeError(f"{motor.name} ({motor.model}) se interrumpió a mitad de la respuesta: {exc}") from exc
                 errors.append(f"{motor.name} ({motor.model}): {exc}")
         raise RuntimeError("Fallaron todos los motores en streaming: " + " | ".join(errors))

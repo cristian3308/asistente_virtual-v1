@@ -1,8 +1,10 @@
 """Abre aplicaciones de Windows buscando automáticamente su ubicación."""
 from __future__ import annotations
 
+import json
 import os
 import shutil
+import subprocess
 import time
 import unicodedata
 from pathlib import Path
@@ -23,6 +25,36 @@ _ALIASES = {
 def _normalizar(valor: str) -> str:
     normalized = unicodedata.normalize("NFKD", valor).encode("ascii", "ignore").decode()
     return "".join(char.lower() for char in normalized if char.isalnum())
+
+
+def _apps_menu_inicio() -> list[dict]:
+    """Apps del menú Inicio, incluidas las de Microsoft Store (Copilot, WhatsApp...)."""
+    command = "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-StartApps | ConvertTo-Json -Compress"
+    try:
+        out = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
+                             capture_output=True, timeout=20, check=True).stdout.decode("utf-8", errors="replace")
+        data = json.loads(out or "[]")
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return []
+    return [item for item in (data if isinstance(data, list) else [data]) if item.get("Name") and item.get("AppID")]
+
+
+def _resolver_en_menu_inicio(consultas: list[str]) -> tuple[dict | None, list[str]]:
+    """Devuelve (app a abrir, opciones ambiguas). Solo abre coincidencias exactas o únicas."""
+    apps = _apps_menu_inicio()
+    for consulta in consultas:
+        query = _normalizar(consulta)
+        if not query:
+            continue
+        exact = [app for app in apps if _normalizar(app["Name"]) == query]
+        if exact:
+            return exact[0], []
+        partial = [app for app in apps if query in _normalizar(app["Name"])]
+        if len(partial) == 1:
+            return partial[0], []
+        if partial:
+            return None, sorted({app["Name"] for app in partial})[:8]
+    return None, []
 
 
 def _buscar_candidatos(nombre: str) -> list[Path]:
@@ -113,6 +145,15 @@ def abrir_aplicacion(
             return f"No encontré la aplicación en la ruta indicada: {candidate}"
         candidates = [candidate]
     else:
+        app_inicio, opciones = _resolver_en_menu_inicio([consulta, alias])
+        if app_inicio:
+            try:
+                os.startfile(f"shell:AppsFolder\\{app_inicio['AppID']}")
+                return f"Aplicación abierta: {app_inicio['Name']}"
+            except OSError as exc:
+                return f"Encontré '{app_inicio['Name']}', pero Windows no pudo abrirla: {exc}"
+        if opciones:
+            return f"Hay varias aplicaciones que coinciden con '{consulta}': {', '.join(opciones)}. ¿Cuál quieres abrir?"
         candidates = _buscar_candidatos(alias)
     if not candidates:
         return f"No encontré '{consulta}'. Prueba con el nombre visible de la aplicación o proporciona su ruta."

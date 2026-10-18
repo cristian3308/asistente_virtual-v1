@@ -8,9 +8,9 @@
   },
   {
     "name": "abrir_aplicacion",
-    "description": "Habilidad generada: abrir_aplicacion",
+    "description": "Abre una aplicación instalada por su nombre (menú Inicio, Microsoft Store o ruta)",
     "file": "abrir_aplicacion.py",
-    "sha256": "8DB17FC28353AE4104725A34A61A7F4CE93288C7C2E15CA8FDE8C5E23E5B4B20",
+    "sha256": "7493781b15a16a4bffaabf98ebb38d267d4cd8d13f81233587dd7bf0ce58e2dc",
     "approved": true
   }
 ]

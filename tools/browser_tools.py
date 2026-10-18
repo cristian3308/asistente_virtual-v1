@@ -5,7 +5,7 @@ import json
 from urllib.parse import urlparse
 from rich.prompt import Confirm
 from config import settings
-from core.self_coder import confirmation_allowed
+from core.self_coder import confirmar, confirmation_allowed
 
 
 def automatizar_navegador(url: str, acciones: str = "[]") -> str:
@@ -21,10 +21,7 @@ def automatizar_navegador(url: str, acciones: str = "[]") -> str:
         mutating = [step for step in steps if isinstance(step, dict) and step.get("action") in {"fill", "click"}]
         if mutating and not confirmation_allowed():
             return "Automatización cancelada: las acciones mutables requieren una sesión de consola."
-        if mutating and not Confirm.ask(
-            f"¿Autorizas {len(mutating)} acción(es) que pueden modificar una página en {url}?",
-            default=False,
-        ):
+        if mutating and not confirmar(f"¿Autorizas {len(mutating)} acción(es) que pueden modificar una página en {url}?"):
             return "Automatización cancelada: requiere autorización explícita."
         from playwright.sync_api import sync_playwright
         with sync_playwright() as playwright:

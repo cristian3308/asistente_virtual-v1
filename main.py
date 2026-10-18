@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sys
 import threading
+from contextlib import contextmanager
 
 from rich.console import Console
 from rich.markdown import Markdown
@@ -17,30 +18,101 @@ from memory.episodic_db import EpisodicMemory
 from tools.memory_tools import buscar_en_memoria_profunda, indexar_proyecto_local
 from tools.system_tools import estado_hardware
 from core.sentinel import Sentinel
-from core.self_coder import cargar_habilidades_guardadas, forjar_habilidad_desde_instruccion
+from core.self_coder import cargar_habilidades_guardadas, forjar_habilidad_desde_instruccion, reset_ui_pause, set_ui_pause
 from tools.registry import listar_habilidades_disponibles
 from core.benchmark import medir_ollama
+from interfaces import avatar
 
 console = Console()
 
 
 def main() -> None:
     brain = AssistantBrain()
+    loaded_skills = cargar_habilidades_guardadas()
+    if settings.AVATAR:
+        console.print(f"[dim]{avatar.iniciar()}[/dim]")
+    if loaded_skills:
+        console.print(f"[green]Habilidades aprobadas cargadas:[/green] {', '.join(loaded_skills)}")
     voice_enabled = False
     sentinel = Sentinel(voice_enabled=lambda: voice_enabled)
     if settings.TELEGRAM_BOT_TOKEN and settings.TELEGRAM_ALLOWED_USER_ID:
         try:
             from interfaces.telegram_bot import run_telegram
             threading.Thread(target=run_telegram, args=(brain,), name="asistente-telegram", daemon=True).start()
-            console.print("[green]Bot Telegram iniciado en segundo plano.[/green]")
+            console.print("[dim]Conectando con Telegram...[/dim]")
         except Exception as exc:
             console.print(f"[yellow]Telegram no pudo iniciarse: {exc}[/yellow]")
     console.print(Panel.fit(
         "Asistente Híbrido — Windows · RTX 3050 · OpenCode Go / Ollama\n"
         f"Ollama: {'activo' if settings.ollama_activo() else 'apagado'} | Cloud: {'configurado' if settings.cloud_configurado() else 'sin API key'}\n"
-        "Comandos: /estado /limpiar /indexar <ruta> /recuerdos /habilidades /cargar_habilidades /ver <pregunta> /centinela <on|off> /benchmark /modelo <codigo|razonamiento|rapido|local|turbo> /voz /salir",
+        "Comandos: /estado /limpiar /indexar <ruta> /recuerdos /habilidades /cargar_habilidades /ver <pregunta> /centinela <on|off> /benchmark /modelo <codigo|razonamiento|rapido|local|turbo> /recuerdos /olvidar /voz /voces /voz_probar /voz_usar /conversar /avatar /salir",
         title="🤖 Asistente Virtual Profundo", border_style="cyan",
     ))
+
+    def responder(prompt: str) -> None:
+        """Genera una respuesta y, si corresponde, la reproduce completa."""
+        visible = []
+        speaker = None
+        if voice_enabled:
+            try:
+                from voice.mouth_tts import SentenceSpeaker
+                speaker = SentenceSpeaker()
+            except Exception:
+                speaker = None
+
+        def on_token(token: str) -> None:
+            visible.append(token)
+            if speaker:
+                speaker.feed(token)
+            live.update(Text("".join(visible)))
+
+        @contextmanager
+        def pausar_live():
+            # Las confirmaciones (forja, PowerShell, navegador) necesitan la consola quieta.
+            live.stop()
+            try:
+                yield
+            finally:
+                live.start()
+
+        try:
+            with Live(Text("Pensando..."), console=console, refresh_per_second=20) as live:
+                pause_token = set_ui_pause(pausar_live)
+                try:
+                    answer, motor = brain.ask(prompt, on_token=on_token)
+                finally:
+                    reset_ui_pause(pause_token)
+                live.update(Markdown(answer))
+        finally:
+            if speaker:
+                # También actúa como silenciador: el siguiente escuchar() espera aquí.
+                speaker.close()
+        console.print(f"[dim]Motor: {motor}[/dim]")
+
+    def conversar() -> None:
+        """Bucle de conversación manos libres; termina con 'salir'."""
+        nonlocal voice_enabled
+        voice_enabled = True
+        try:
+            from voice.ear_stt import escuchar, precargar
+            precargar()
+            console.print(f"[green]Conversación activa. Habla; respondo cuando te calles "
+                          f"{settings.VOZ_SILENCIO_FIN:g} s. Di 'salir' para terminar.[/green]")
+            while True:
+                console.print("[dim]Escuchando...[/dim]")
+                prompt = escuchar()
+                if not prompt:
+                    continue
+                console.print(f"[green]Transcripción:[/green] {prompt}")
+                if prompt.strip().lower().strip(" .,!¡¿?") in {"salir", "terminar", "adiós", "adios", "para", "detente"}:
+                    break
+                responder(prompt)
+        except Exception as exc:
+            console.print(f"[red]Error de conversación/STT: {exc}[/red]")
+        finally:
+            voice_enabled = False
+            console.print("[yellow]Conversación terminada.[/yellow]")
+
     while True:
         try:
             prompt = console.input("[bold green]Tú[/bold green] > ").strip()
@@ -48,7 +120,7 @@ def main() -> None:
                 if voice_enabled:
                     try:
                         from voice.ear_stt import escuchar
-                        console.print("[dim]Escuchando (máximo 5 segundos)...[/dim]")
+                        console.print("[dim]Escuchando... (termino cuando dejes de hablar)[/dim]")
                         prompt = escuchar()
                         if not prompt:
                             console.print("[yellow]No se detectó voz.[/yellow]")
@@ -74,9 +146,36 @@ def main() -> None:
                     title="Estado del sistema", border_style="blue"
                 ))
                 continue
+            if lower == "/voces":
+                from voice.mouth_tts import listar_voces
+                console.print(Panel(listar_voces() + "\n\nPrueba: /voz_probar jarvis · Elegir: /voz_usar jarvis",
+                                    title="Voces (▶ = actual)", border_style="cyan"))
+                continue
+            if lower.startswith("/voz_probar"):
+                from voice.mouth_tts import hablar, voz_actual
+                nombre = prompt.partition(" ")[2].strip() or voz_actual()
+                console.print(f"[dim]Probando la voz '{nombre}'...[/dim]")
+                try:
+                    hablar("Buenas, Cristhian. Todos los sistemas están en línea. ¿En qué te ayudo hoy?", voz=nombre)
+                except Exception as exc:
+                    console.print(f"[red]No se pudo probar '{nombre}': {exc}[/red]")
+                continue
+            if lower.startswith("/voz_usar"):
+                from voice.mouth_tts import elegir_voz
+                console.print(elegir_voz(prompt.partition(" ")[2]))
+                continue
             if lower == "/voz":
                 voice_enabled = not voice_enabled
+                if voice_enabled:
+                    from voice.ear_stt import precargar
+                    precargar()
                 console.print(f"Voz {'activada: pulsa Enter para grabar y escribe /voz para desactivar.' if voice_enabled else 'desactivada.'}")
+                continue
+            if lower == "/avatar":
+                console.print(avatar.detener() if avatar.abierto() else avatar.iniciar())
+                continue
+            if lower == "/conversar":
+                conversar()
                 continue
             if lower == "/benchmark":
                 result = medir_ollama(brain.router)
@@ -140,35 +239,25 @@ def main() -> None:
                         console.print(indexar_proyecto_local(path))
                 continue
             if lower == "/recuerdos":
-                records = EpisodicMemory().recent_records(12)
-                found = buscar_en_memoria_profunda("preferencias proyectos información personal")
-                console.print(Panel(f"[bold]Recuerdos semánticos[/bold]\n{found}\n\n[bold]Mensajes recientes[/bold]\n" + "\n".join(
-                    f"{stamp[:19]} [{motor or '—'}] {text[:180]}" for stamp, text, motor in records
-                ), title="Memoria", border_style="magenta"))
+                from memory import perfil
+                datos = perfil.hechos()
+                tabla = Table(title="Lo que sé de ti (se incluye en cada respuesta)")
+                for columna in ("id", "dato", "valor", "categoría", "actualizado"):
+                    tabla.add_column(columna)
+                for h in datos:
+                    tabla.add_row(str(h["id"]), h["clave"], h["valor"], h["categoria"], h["actualizado"][:10])
+                console.print(tabla if datos else "[dim]Aún no sé nada de ti: cuéntame (\"me llamo…\", \"me gusta…\").[/dim]")
+                console.print("[dim]Corregir: dímelo de nuevo (\"mi mamá se llama …\"). Borrar: /olvidar <id o texto> o \"olvida que …\".[/dim]")
                 continue
-            visible = []
-            speaker = None
-            if voice_enabled:
-                try:
-                    from voice.mouth_tts import SentenceSpeaker
-                    speaker = SentenceSpeaker()
-                except Exception:
-                    speaker = None
-
-            def on_token(token: str) -> None:
-                visible.append(token)
-                if speaker:
-                    speaker.feed(token)
-                live.update(Text("".join(visible)))
-
-            with Live(Text("Pensando..."), console=console, refresh_per_second=20) as live:
-                answer, motor = brain.ask(prompt, on_token=on_token)
-                live.update(Markdown(answer))
-            if speaker:
-                speaker.close()
-            console.print(f"[dim]Motor: {motor}[/dim]")
+            if lower.startswith("/olvidar"):
+                from memory import perfil
+                objetivo = prompt.partition(" ")[2].strip()
+                console.print(f"Olvidé {perfil.olvidar(objetivo)} dato(s)." if objetivo else "Uso: /olvidar <id o texto>")
+                continue
+            responder(prompt)
         except (KeyboardInterrupt, EOFError):
             break
+    avatar.detener()
     console.print("[dim]Cerrando asistente.[/dim]")
 
 

@@ -28,6 +28,8 @@ API_KEY = os.getenv("OPENCODE_API_KEY", "").strip().strip('"').strip("'")
 CLOUD_BASE_URL = "https://opencode.ai/zen/go/v1"
 LOCAL_BASE_URL = "http://127.0.0.1:11434/v1"
 CLOUD_MODELS = {
+    # IDs exactos de OpenCode Go con soporte de chat + herramientas (verificado 2026-10-17).
+    # Los modelos "*-luna" responden ModelProtocolUnsupported en /chat/completions.
     "codigo": "kimi-k2.7-code",
     "razonamiento": "qwen3.7-plus",
     "rapido": "glm-5.3",
@@ -44,6 +46,28 @@ OLLAMA_EXTRA_BODY = {
     "keep_alive": "24h",
 }
 USER_AGENT = "cristhian-assistant/1.0"
+# Nombre del dueño: base de la memoria personal (se puede corregir diciendo "me llamo …").
+USER_NAME = os.getenv("ASSISTANT_USER_NAME", "Cristhian").strip() or "Cristhian"
+# Modelos para programar habilidades, en orden. minimax-m3 tardó 9 s frente a 87 s de
+# kimi con el mismo resultado (pruebas 4/4) en la medición del 2026-10-17.
+FORGE_MODELS = [m.strip() for m in os.getenv("ASSISTANT_FORGE_MODELS", "minimax-m3,kimi-k2.7-code").split(",") if m.strip()]
+# Si el modelo local no puede resolver un turno, se repite automáticamente en la nube.
+AUTO_ESCALATE = os.getenv("ASSISTANT_AUTO_ESCALATE", "1").strip().lower() not in {"0", "false", "no"}
+# Avatar flotante (robot-heads) al arrancar; se abre/cierra con /avatar.
+AVATAR = os.getenv("ASSISTANT_AVATAR", "1").strip().lower() not in {"0", "false", "no"}
+# Modelo de Faster-Whisper en CPU. Medición 2026-10-17 (voz + ruido, con pista y 8 hilos):
+# "small" 15,9 % de error en 3,4 s por frase; "base" 33,6 % en 1,3 s.
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small").strip() or "small"
+WHISPER_THREADS = int(os.getenv("WHISPER_THREADS", "8"))
+# Palabras que Whisper suele escribir mal; se le dan como pista.
+WHISPER_VOCABULARIO = os.getenv(
+    "WHISPER_VOCABULARIO",
+    "Cristhian, Spotify, Obsidian, Ollama, Copilot, Discord, Telegram, WhatsApp, PowerShell, Python.",
+)
+# Escucha: termina tras este silencio (s) cuando ya hablaste; deja de esperar si no empiezas.
+VOZ_SILENCIO_FIN = float(os.getenv("ASSISTANT_SILENCIO_FIN", "4.0"))
+VOZ_ESPERA_INICIO = float(os.getenv("ASSISTANT_ESPERA_INICIO", "8.0"))
+VOZ_MAXIMO = float(os.getenv("ASSISTANT_VOZ_MAXIMO", "60"))
 
 
 def ollama_activo() -> bool:
