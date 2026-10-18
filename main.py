@@ -45,7 +45,7 @@ def main() -> None:
     console.print(Panel.fit(
         "Asistente Híbrido — Windows · RTX 3050 · OpenCode Go / Ollama\n"
         f"Ollama: {'activo' if settings.ollama_activo() else 'apagado'} | Cloud: {'configurado' if settings.cloud_configurado() else 'sin API key'}\n"
-        "Comandos: /estado /limpiar /indexar <ruta> /recuerdos /habilidades /cargar_habilidades /ver <pregunta> /centinela <on|off> /benchmark /modelo <codigo|razonamiento|rapido|local|turbo> /recuerdos /olvidar /voz /voces /voz_probar /voz_usar /conversar /avatar /salir",
+        "Comandos: /estado /limpiar /indexar <ruta> /recuerdos /habilidades /cargar_habilidades /ver <pregunta> /centinela <on|off> /benchmark /modelo <codigo|razonamiento|rapido|local|turbo> /recuerdos /olvidar /auditoria /parar /reanudar /voz /voces /voz_probar /voz_usar /conversar /avatar /salir",
         title="🤖 Asistente Virtual Profundo", border_style="cyan",
     ))
 
@@ -248,6 +248,25 @@ def main() -> None:
                     tabla.add_row(str(h["id"]), h["clave"], h["valor"], h["categoria"], h["actualizado"][:10])
                 console.print(tabla if datos else "[dim]Aún no sé nada de ti: cuéntame (\"me llamo…\", \"me gusta…\").[/dim]")
                 console.print("[dim]Corregir: dímelo de nuevo (\"mi mamá se llama …\"). Borrar: /olvidar <id o texto> o \"olvida que …\".[/dim]")
+                continue
+            if lower in {"/parar", "/stop", "/detener"}:
+                from core import auditoria
+                sentinel.stop()
+                console.print(f"[bold red]{auditoria.detener('consola')}[/bold red]")
+                continue
+            if lower in {"/reanudar", "/continuar"}:
+                from core import auditoria
+                console.print(f"[green]{auditoria.reanudar()}[/green]")
+                continue
+            if lower.startswith("/auditoria"):
+                from core import auditoria
+                tabla = Table(title="Últimas acciones (data/auditoria/acciones.jsonl)")
+                for columna in ("hora", "origen", "tipo", "acción", "detalle", "resultado"):
+                    tabla.add_column(columna, overflow="fold")
+                for a in auditoria.recientes(int(prompt.partition(" ")[2] or 20)):
+                    tabla.add_row(a["fecha"][11:19], a["origen"], a["tipo"], a["nombre"][:40],
+                                  a["detalle"][:60], ("✓ " if a["ok"] else "✗ ") + a["resultado"][:60])
+                console.print(tabla)
                 continue
             if lower.startswith("/olvidar"):
                 from memory import perfil

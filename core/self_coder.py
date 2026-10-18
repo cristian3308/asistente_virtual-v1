@@ -70,10 +70,14 @@ def reset_ui_pause(token) -> None:
 def confirmar(pregunta: str, mostrar=None) -> bool:
     """Pregunta sí/no sin que la animación de la consola tape el texto."""
     factory = _ui_pause.get()
+    from core import auditoria
+
     with factory() if factory else contextlib.nullcontext():
         if mostrar:
             mostrar()
-        return Confirm.ask(pregunta, default=False)
+        aprobada = Confirm.ask(pregunta, default=False)
+    auditoria.registrar("confirmacion", pregunta, resultado="aprobada" if aprobada else "rechazada", ok=aprobada)
+    return aprobada
 
 
 def confirmation_allowed() -> bool:
@@ -278,6 +282,8 @@ def crear_y_cargar_herramienta(
     })
     _save_manifest(items)
     ULTIMA_HABILIDAD = nombre_funcion
+    from core import auditoria
+    auditoria.registrar("habilidad", nombre_funcion, descripcion, "instalada", sha256=items[-1]["sha256"])
     return f"Habilidad '{nombre_funcion}' validada, cargada y registrada en caliente."
 
 

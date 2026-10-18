@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from config import settings
-from core import estado, self_coder
+from core import auditoria, estado, self_coder
 from core.router import ModelRouter
 from memory import perfil
 from memory.episodic_db import EpisodicMemory
@@ -108,6 +108,10 @@ class AssistantBrain:
             return "", "—"
         self.memory.save("user", prompt)
         self.history.append({"role": "user", "content": prompt})
+        if auditoria.detenido():
+            answer = "⛔ Estoy en parada de emergencia y no ejecuto nada. Escribe /reanudar para continuar."
+            self.history.append({"role": "assistant", "content": answer})
+            return answer, "Detenido"
         olvidar = re.match(r"^\s*(?:olvida|olv[ií]date\s+de|borra\s+(?:el\s+recuerdo\s+de|que))\s+(?:que\s+|lo\s+de\s+)?(.+?)[.!?]*$",
                            prompt, re.IGNORECASE)
         if olvidar:
@@ -146,10 +150,14 @@ class AssistantBrain:
             reason = self._escalation_reason(answer, meta)
             if reason:
                 Console().print(f"[yellow]↗ {reason}; lo intento con la nube ({self.router.cloud_model})...[/yellow]")
+                auditoria.registrar("escalado", self.router.cloud_model, prompt, reason)
                 if on_token:
                     on_token(f"\n\n↗ {reason}; consultando a la nube...\n\n")
                 estado.publicar("thinking", motor="cloud", detalle="Consultando la nube…")
                 answer, used_motor, meta = self._run_turn(prompt, on_token, True, seen_tool_results)
+            estado.publicar("idle")
+        except auditoria.Detenido as exc:
+            answer = f"⛔ {exc}"
             estado.publicar("idle")
         except Exception as exc:
             answer = f"Error al consultar los motores: {exc}"
@@ -236,6 +244,7 @@ class AssistantBrain:
                 tool_choice="auto" if tools_for_turn else "none",
             ):
                 motor = current_motor
+                auditoria.comprobar()  # /parar corta también una respuesta a medias
                 for choice in getattr(chunk, "choices", []) or []:
                     delta = getattr(choice, "delta", None)
                     if delta is None:

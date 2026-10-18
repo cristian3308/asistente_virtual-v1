@@ -1,6 +1,7 @@
 """Puente Telegram restringido a un único usuario autorizado."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import shutil
 from pathlib import Path
@@ -50,12 +51,24 @@ def run_telegram(brain) -> None:
 
 
 def _ejecutar_bot(brain, Update, Application, CommandHandler, ContextTypes, MessageHandler, filters) -> None:
+    from core import auditoria
+    # Las tareas del bot heredan este contexto: todo lo que hagan queda auditado como 'telegram'.
+    auditoria.origen("telegram")
+
+    async def parar_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if _authorized(update):
+            await update.message.reply_text(auditoria.detener("telegram"))
+
+    async def reanudar_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if _authorized(update):
+            await update.message.reply_text(auditoria.reanudar())
+
     async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not _authorized(update):
             return
         token = confirmation_context(False)
         try:
-            answer, motor = brain.ask(update.message.text or "")
+            answer, motor = await asyncio.to_thread(brain.ask, update.message.text or "")
         finally:
             reset_confirmation_context(token)
         await update.message.reply_text(f"[{motor}]\n{answer[:4000]}")
@@ -70,7 +83,7 @@ def _ejecutar_bot(brain, Update, Application, CommandHandler, ContextTypes, Mess
             path.parent.mkdir(parents=True, exist_ok=True)
             await voice.download_to_drive(custom_path=str(path))
             try:
-                text = transcribir_archivo(path)
+                text = await asyncio.to_thread(transcribir_archivo, path)
             finally:
                 path.unlink(missing_ok=True)  # el audio no se guarda una vez transcrito
             if not text:
@@ -78,13 +91,13 @@ def _ejecutar_bot(brain, Update, Application, CommandHandler, ContextTypes, Mess
                 return
             token = confirmation_context(False)
             try:
-                answer, motor = brain.ask(text)
+                answer, motor = await asyncio.to_thread(brain.ask, text)
             finally:
                 reset_confirmation_context(token)
             await update.message.reply_text(f"🎙️ Entendí: {text}\n\n[{motor}]\n{answer[:3900]}")
             # Si me hablaste con voz, te respondo también con voz (la elegida con /voz_usar).
             from voice.mouth_tts import nota_de_voz
-            ogg = nota_de_voz(answer)
+            ogg = await asyncio.to_thread(nota_de_voz, answer)
             if ogg is not None:
                 try:
                     with ogg.open("rb") as audio:
@@ -123,7 +136,7 @@ def _ejecutar_bot(brain, Update, Application, CommandHandler, ContextTypes, Mess
             await update.message.reply_text(
                 "Hola, Cristhian. Escríbeme o mándame una nota de voz y te respondo (con voz si me hablas).\n"
                 "Por seguridad, desde aquí no ejecuto PowerShell ni instalo habilidades nuevas.\n"
-                "/captura te envía una foto de la pantalla del PC · /estado comprueba la conexión."
+                "/captura foto de la pantalla del PC · /parar detiene todo (emergencia) · /reanudar · /estado conexión."
             )
 
     async def al_conectar(application) -> None:
@@ -131,10 +144,14 @@ def _ejecutar_bot(brain, Update, Application, CommandHandler, ContextTypes, Mess
         _avisar(f"[green]✅ Telegram conectado: @{bot.username}. Escríbele /start desde tu Telegram. "
                 "(Lo que enviaste con el asistente cerrado se descarta: vuelve a enviarlo.)[/green]")
 
-    app = Application.builder().token(settings.TELEGRAM_BOT_TOKEN).post_init(al_conectar).build()
+    # concurrent_updates: /parar se atiende aunque haya una respuesta larga en curso.
+    app = (Application.builder().token(settings.TELEGRAM_BOT_TOKEN).post_init(al_conectar)
+           .concurrent_updates(True).build())
     app.add_handler(CommandHandler("start", start_handler))
     app.add_handler(CommandHandler("estado", status_handler))
     app.add_handler(CommandHandler("captura", captura_handler))
+    app.add_handler(CommandHandler("parar", parar_handler))
+    app.add_handler(CommandHandler("reanudar", reanudar_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     app.add_handler(MessageHandler(filters.VOICE, voice_handler))
     app.run_polling(drop_pending_updates=True)

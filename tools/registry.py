@@ -7,6 +7,7 @@ import importlib.util
 import multiprocessing
 import os
 import re
+import time
 
 from tools import dev_sec_tools, memory_tools, system_tools, vision_tools, web_tools, knowledge_vault, clipboard_tasks, browser_tools
 
@@ -300,8 +301,16 @@ def unregister_custom_tool(name: str) -> None:
 
 
 def call_tool(name: str, raw_arguments: str) -> str:
+    """Punto único por el que pasan todas las herramientas: aquí se audita y se respeta la parada."""
+    from core import auditoria
+
     if name not in FUNCTIONS:
+        auditoria.registrar("herramienta", name, raw_arguments, "desconocida", ok=False)
         return f"Herramienta desconocida: {name}"
+    if auditoria.detenido():
+        auditoria.registrar("herramienta", name, raw_arguments, "bloqueada por la parada de emergencia", ok=False)
+        return "⛔ Acción no ejecutada: la parada de emergencia está activa (/reanudar para continuar)."
+    inicio = time.perf_counter()
     try:
         args = json.loads(raw_arguments or "{}")
         if not isinstance(args, dict):
@@ -309,9 +318,13 @@ def call_tool(name: str, raw_arguments: str) -> str:
         args = _unwrap_schema_values(args)
         tool = FUNCTIONS[name]
         target = getattr(tool, "_tool_target", None)
-        result = _invoke_custom_with_timeout(target, _invoke_arguments(target, args)) if target is not None else tool(args)
-        return str(result)
+        result = str(_invoke_custom_with_timeout(target, _invoke_arguments(target, args)) if target is not None else tool(args))
+        auditoria.registrar("herramienta", name, args, result, ok=not result.startswith(("Error", "No se pudo")),
+                            segundos=round(time.perf_counter() - inicio, 2))
+        return result
     except Exception as exc:
+        auditoria.registrar("herramienta", name, raw_arguments, f"{type(exc).__name__}: {exc}", ok=False,
+                            segundos=round(time.perf_counter() - inicio, 2))
         try:
             from memory.learning_loop import registrar_fallo
             return registrar_fallo(name, exc)
