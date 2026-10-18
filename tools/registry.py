@@ -44,6 +44,7 @@ TOOL_SCHEMAS = [
     _tool("copiar_al_portapapeles", "Copia texto al portapapeles de Windows.", {"texto": {"type": "string"}}, ["texto"]),
     _tool("programar_recordatorio", "Programa un recordatorio que sobrevive a reinicios y avisa también por Telegram. Usa minutos desde ahora u hora HH:MM.", {"mensaje": {"type": "string"}, "minutos": {"type": "integer"}, "hora": {"type": "string"}}, ["mensaje"]),
     _tool("crear_tarea", "Encarga un trabajo para hacerlo en segundo plano (investigar, revisar, preparar algo) y avisar al terminar. Opcional: hora HH:MM para empezar.", {"objetivo": {"type": "string"}, "hora": {"type": "string"}}, ["objetivo"]),
+    _tool("programar_cambio", "Modifica el código del propio asistente (añadir un comando, arreglar un error, nueva función) con el agente programador: rama aparte, pruebas y revisión del diff antes de aplicar.", {"objetivo": {"type": "string"}}, ["objetivo"]),
     _tool("listar_tareas", "Muestra las tareas y recordatorios pendientes o en curso."),
     _tool("cancelar_tarea", "Cancela una tarea o recordatorio por su id.", {"id": {"type": "string"}}, ["id"]),
     _tool("automatizar_navegador", "Lee páginas o ejecuta acciones declarativas con Playwright.", {"url": {"type": "string"}, "acciones": {"type": "string"}}, ["url"]),
@@ -72,6 +73,7 @@ FUNCTIONS = {
     "copiar_al_portapapeles": lambda a: clipboard_tasks.copiar_al_portapapeles(a["texto"]),
     "programar_recordatorio": lambda a: clipboard_tasks.programar_recordatorio(a["mensaje"], a.get("minutos", 0), a.get("hora", "")),
     "crear_tarea": lambda a: _crear_tarea(a.get("objetivo", ""), a.get("hora", "")),
+    "programar_cambio": lambda a: _programar_cambio(a.get("objetivo", "")),
     "listar_tareas": lambda a: _listar_tareas(),
     "cancelar_tarea": lambda a: _cancelar_tarea(str(a.get("id", ""))),
     "automatizar_navegador": lambda a: browser_tools.automatizar_navegador(a["url"], a.get("acciones", "[]")),
@@ -98,6 +100,24 @@ def _crear_tarea(objetivo: str, hora: str = "") -> str:
             return f"Hora no válida: {hora}. Usa HH:MM."
     id_tarea = tareas.crear("agente", objetivo, cuando=cuando)
     return f"Tarea [{id_tarea}] creada. La haré en segundo plano y te aviso al terminar (también por Telegram)."
+
+
+def _programar_cambio(objetivo: str) -> str:
+    """Encarga un cambio en el código del propio asistente; empieza solo con aprobación del usuario."""
+    from core import tareas
+    from core.self_coder import confirmar, confirmation_allowed
+    if not objetivo.strip():
+        return "Falta describir el cambio."
+    aprobado = confirmation_allowed() and confirmar(
+        f"El agente programador modificará el código en una rama aparte y ejecutará las pruebas en tu PC "
+        f"(sin tus claves). Después revisarás el diff antes de aplicarlo. ¿Empezar «{objetivo[:80]}»?")
+    id_tarea = tareas.crear("programa", objetivo, max_intentos=1,
+                            estado="pendiente" if aprobado else "esperando_autorizacion")
+    if aprobado:
+        return (f"Cambio [{id_tarea}] en marcha en segundo plano. Te aviso cuando esté listo para revisar "
+                f"(/revisar {id_tarea}).")
+    return (f"Cambio [{id_tarea}] preparado pero NO iniciado: Cristhian debe aprobarlo en la consola con "
+            f"/aprobar {id_tarea}.")
 
 
 def _listar_tareas() -> str:
@@ -151,6 +171,7 @@ def obtener_herramientas_relevantes(prompt: str, es_local: bool) -> list | None:
         "portapapeles": {"leer_portapapeles", "copiar_al_portapapeles"},
         "recordatorio": {"programar_recordatorio", "listar_tareas", "cancelar_tarea"},
         "tarea": {"crear_tarea", "listar_tareas", "cancelar_tarea"},
+        "codigo_propio": {"programar_cambio"},
         "navegador": {"automatizar_navegador"},
         "habilidad": {"listar_habilidades_disponibles", "autoprogramar_habilidad"},
         "aplicacion": {"abrir_aplicacion", "listar_aplicaciones"},
@@ -169,6 +190,8 @@ def obtener_herramientas_relevantes(prompt: str, es_local: bool) -> list | None:
         "portapapeles": ("portapapeles", "copié", "copie", "copiado", "pegar"),
         "recordatorio": ("recordatorio", "avísame", "avisame", "minutos"),
         "tarea": ("tarea", "segundo plano", "encárgate", "encargate", "cuando termines", "pendiente"),
+        "codigo_propio": ("tu código", "tu codigo", "tu bot", "modifícate", "modificate", "agrégale", "agregale",
+                          "añádele", "añade un comando", "agrega un comando", "programa un cambio", "mejórate"),
         "navegador": ("navegador", "browser", "formulario", "página", "pagina", "playwright"),
         "habilidad": ("habilidad", "capacidad", "puedes hacer", "sabes hacer", "no sabes", "aprende"),
         "aplicacion": ("abre", "abrir", "aplicación", "aplicacion", "app", "programa", "instalado", "instalada"),

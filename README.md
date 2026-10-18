@@ -84,6 +84,24 @@ Se usa en ese mismo momento, sin reiniciar.
 ### Tareas y recordatorios
 Los recordatorios (*"recuérdame a las 18:30…"*) y las tareas en segundo plano (*"encárgate de investigar…"*, `/tarea …`) se guardan en `data/tareas.db`: sobreviven a cerrar el programa y las que quedaron a medias se reanudan al volver a abrirlo. Reintentan con espera creciente (máximo 3 intentos) y avisan en consola, por voz y por Telegram. En segundo plano no puede aprobar acciones sensibles: esas se rechazan solas.
 
+### Agente programador (cambios en su propio código)
+Pídele cambios como *"añade a tu bot el comando /hora"* o usa `/programar <cambio>`. Con tu
+aprobación, un modelo de la nube trabaja en una **copia aislada** (`git worktree` en
+`data/taller/<id>`, rama `agente/<id>`): lee, edita, añade pruebas y las ejecuta hasta que pasan
+(máximo 30 llamadas y 15 minutos). Tu código no cambia hasta que lo revisas y lo apruebas:
+
+| Comando | Qué hace |
+|---|---|
+| `/revisar <id>` | Resumen, resultado de las pruebas y diff, con avisos si toca seguridad, comandos o secretos |
+| `/aprobar <id>` | Empieza un cambio pedido desde Telegram, o aplica uno ya revisado (merge en `master`) |
+| `/rechazar <id>` | Descarta la rama sin tocar tu código |
+| `/deshacer <id>` | Revierte un cambio ya aplicado (`git revert`) |
+
+Protecciones: no puede modificar `core/auditoria.py`, `core/programador.py`, `core/self_coder.py`,
+`tools/dev_sec_tools.py`, `.gitignore`, `AGENTS.md` ni `.env`; sus herramientas no salen de la copia;
+las pruebas corren sin tus claves y con límite de tiempo. Limitación: no hay contenedor (Docker), así
+que esas pruebas son procesos de tu Windows; por eso empezar un cambio pide tu aprobación.
+
 ### Auditoría y parada de emergencia
 Cada herramienta, confirmación, habilidad instalada y escalado a la nube queda en `data/auditoria/acciones.jsonl` (con origen, duración y resultado; las claves se ocultan). `/parar` bloquea herramientas, corta la respuesta en curso, silencia la voz y pausa las tareas.
 
@@ -143,8 +161,8 @@ tests/                  pruebas automatizadas
 
 ## Hoja de ruta
 
-Hecho: chat local/nube con escalado automático, memoria personal persistente, voz, avatar, Telegram, habilidades con pruebas aisladas, investigación web, registro de auditoría, parada de emergencia y motor de tareas persistente con avisos.
+Hecho: chat local/nube con escalado automático, memoria personal persistente, voz, avatar, Telegram, habilidades con pruebas aisladas, investigación web, registro de auditoría, parada de emergencia, motor de tareas persistente con avisos y agente programador con revisión de cambios.
 
-Próximo: agente programador en ramas de git (editar código con revisión de cambios), interfaz web/PWA con acceso seguro desde Android (Tailscale), visión multimodal, resúmenes de memoria.
+Próximo: interfaz web/PWA con acceso seguro desde Android (Tailscale), visión multimodal, resúmenes de memoria.
 
 Créditos: avatar basado en [robot-heads](https://github.com/fayazara/robot-heads) (MIT).

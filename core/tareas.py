@@ -6,7 +6,8 @@ PC. Un hilo las ejecuta de una en una cuando les toca. Cada cambio de estado se 
 volver a abrir. Hay reintentos con espera creciente, límite de intentos y la parada de
 emergencia pausa el motor.
 
-Estados: pendiente · ejecutando · pausada · completada · fallida · cancelada.
+Estados: pendiente · ejecutando · pausada · esperando_autorizacion · completada · fallida · cancelada.
+Tipos: recordatorio · agente (trabajo con herramientas) · programa (cambio de código con revisión).
 """
 from __future__ import annotations
 
@@ -20,7 +21,7 @@ from config.settings import DATA_DIR
 from core import auditoria
 
 DB_PATH = DATA_DIR / "tareas.db"
-ACTIVAS = ("pendiente", "ejecutando", "pausada")
+ACTIVAS = ("pendiente", "ejecutando", "pausada", "esperando_autorizacion")
 _lock = threading.Lock()
 
 
@@ -50,24 +51,35 @@ def _conectar() -> sqlite3.Connection:
             origen TEXT NOT NULL DEFAULT 'consola'
         )"""
     )
+    if "datos" not in {c[1] for c in db.execute("PRAGMA table_info(tareas)")}:
+        db.execute("ALTER TABLE tareas ADD COLUMN datos TEXT NOT NULL DEFAULT '{}'")  # migración
     return db
 
 
 def crear(tipo: str, objetivo: str, cuando: datetime | None = None, origen: str = "consola",
-          max_intentos: int = 3) -> str:
-    if tipo not in ("recordatorio", "agente"):
+          max_intentos: int = 3, estado: str = "pendiente") -> str:
+    if tipo not in ("recordatorio", "agente", "programa"):
         raise ValueError(f"Tipo de tarea desconocido: {tipo}")
     id_tarea = uuid.uuid4().hex[:8]
     ahora = _ahora().isoformat()
     with _lock, _conectar() as db:
         db.execute(
             "INSERT INTO tareas(id, tipo, objetivo, estado, creada, actualizada, programada_para, max_intentos, "
-            "acciones, proximo_paso, origen) VALUES (?, ?, ?, 'pendiente', ?, ?, ?, ?, '[]', ?, ?)",
-            (id_tarea, tipo, objetivo.strip(), ahora, ahora, cuando.isoformat() if cuando else None, max_intentos,
-             "avisar" if tipo == "recordatorio" else "ejecutar el objetivo", origen),
+            "acciones, proximo_paso, origen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?)",
+            (id_tarea, tipo, objetivo.strip(), estado, ahora, ahora, cuando.isoformat() if cuando else None,
+             max_intentos, {"recordatorio": "avisar", "agente": "ejecutar el objetivo"}.get(
+                 tipo, "empezar cuando lo apruebes: /aprobar " + id_tarea if estado != "pendiente" else "programar"),
+             origen),
         )
     auditoria.registrar("tarea", f"crear {tipo}", objetivo, id_tarea)
     return id_tarea
+
+
+def datos(tarea: dict) -> dict:
+    try:
+        return json.loads(tarea.get("datos") or "{}")
+    except ValueError:
+        return {}
 
 
 def obtener(id_tarea: str) -> dict | None:
@@ -119,6 +131,16 @@ def pausar(id_tarea: str) -> bool:
 
 def continuar(id_tarea: str) -> bool:
     return _cambiar(id_tarea, ("pausada", "fallida"), "pendiente", "reanudada por el usuario")
+
+
+def autorizar_inicio(id_tarea: str) -> bool:
+    """Un cambio de código pedido sin confirmación (p. ej. desde Telegram) empieza solo al aprobarlo."""
+    tarea = obtener(id_tarea)
+    if not tarea or tarea["tipo"] != "programa" or tarea["estado"] != "esperando_autorizacion" or datos(tarea):
+        return False
+    _actualizar(id_tarea, "inicio aprobado por el usuario", estado="pendiente", proximo_paso="programar")
+    auditoria.registrar("tarea", "inicio aprobado", id_tarea)
+    return True
 
 
 def recuperar_tras_reinicio() -> int:
@@ -185,6 +207,9 @@ class MotorTareas:
                 self._notificar(f"⏰ Recordatorio: {tarea['objetivo']}")
                 _actualizar(tarea["id"], "aviso enviado", estado="completada", resultado="avisado", proximo_paso=None)
                 return True
+            if tarea["tipo"] == "programa":
+                self._ejecutar_programa(tarea)
+                return True
             resultado = self._ejecutar_agente(tarea)
             _actualizar(tarea["id"], "objetivo terminado", estado="completada", resultado=resultado, proximo_paso=None)
             self._notificar(f"✅ Tarea {tarea['id']} terminada: {tarea['objetivo'][:80]}\n\n{resultado[:1500]}")
@@ -202,6 +227,25 @@ class MotorTareas:
         finally:
             auditoria.restaurar_origen(token)
         return True
+
+    def _ejecutar_programa(self, tarea: dict) -> None:
+        from core import programador
+        hecho = programador.ejecutar(tarea["id"], tarea["objetivo"],
+                                     registrar_paso=lambda paso: _actualizar(tarea["id"], paso))
+        pruebas_ok = hecho["pruebas"].startswith("PRUEBAS OK")
+        if not hecho["commit"]:
+            _actualizar(tarea["id"], "el agente no cambió ningún archivo", estado="completada",
+                        resultado=hecho["resumen"], proximo_paso=None)
+            self._notificar(f"ℹ️ Cambio {tarea['id']}: el agente no modificó nada.\n{hecho['resumen'][:800]}")
+            return
+        _actualizar(tarea["id"], "cambio listo para revisar", estado="esperando_autorizacion",
+                    resultado=f"{hecho['resumen']}\n\n{hecho['pruebas'][:1500]}",
+                    datos=json.dumps({"commit": hecho["commit"], "archivos": hecho["archivos"], "pruebas_ok": pruebas_ok}),
+                    proximo_paso=f"revisar: /revisar {tarea['id']} · aplicar: /aprobar {tarea['id']} · descartar: /rechazar {tarea['id']}")
+        self._notificar(
+            f"🛠️ Cambio {tarea['id']} listo para revisar ({'pruebas OK' if pruebas_ok else '⚠ las pruebas FALLAN'}).\n"
+            f"Archivos: {', '.join(hecho['archivos'][:8])}\n\n{hecho['resumen'][:800]}\n\n"
+            f"Revísalo en la consola con /revisar {tarea['id']}.")
 
     def _ejecutar_agente(self, tarea: dict) -> str:
         from core.self_coder import confirmation_context, reset_confirmation_context

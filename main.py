@@ -1,6 +1,7 @@
 """Interfaz interactiva de consola del asistente."""
 from __future__ import annotations
 
+import json
 import sys
 import threading
 from contextlib import contextmanager
@@ -10,6 +11,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.live import Live
 from rich.text import Text
+from rich.syntax import Syntax
 from rich.table import Table
 
 from config import settings
@@ -18,7 +20,7 @@ from memory.episodic_db import EpisodicMemory
 from tools.memory_tools import buscar_en_memoria_profunda, indexar_proyecto_local
 from tools.system_tools import estado_hardware
 from core.sentinel import Sentinel
-from core.self_coder import cargar_habilidades_guardadas, forjar_habilidad_desde_instruccion, reset_ui_pause, set_ui_pause
+from core.self_coder import cargar_habilidades_guardadas, confirmar as confirmar_consola, forjar_habilidad_desde_instruccion, reset_ui_pause, set_ui_pause
 from tools.registry import listar_habilidades_disponibles
 from core.benchmark import medir_ollama
 from interfaces import avatar
@@ -55,7 +57,7 @@ def main() -> None:
     console.print(Panel.fit(
         "Asistente Híbrido — Windows · RTX 3050 · OpenCode Go / Ollama\n"
         f"Ollama: {'activo' if settings.ollama_activo() else 'apagado'} | Cloud: {'configurado' if settings.cloud_configurado() else 'sin API key'}\n"
-        "Comandos: /estado /limpiar /indexar <ruta> /recuerdos /habilidades /cargar_habilidades /ver <pregunta> /centinela <on|off> /benchmark /modelo <codigo|razonamiento|rapido|local|turbo> /tareas /tarea <objetivo> /cancelar /pausar /reactivar /olvidar /auditoria /parar /reanudar /voz /voces /voz_probar /voz_usar /conversar /avatar /salir",
+        "Comandos: /estado /limpiar /indexar <ruta> /recuerdos /habilidades /cargar_habilidades /ver <pregunta> /centinela <on|off> /benchmark /modelo <codigo|razonamiento|rapido|local|turbo> /tareas /tarea <objetivo> /cancelar /pausar /reactivar /programar <cambio> /revisar /aprobar /rechazar /deshacer /olvidar /auditoria /parar /reanudar /voz /voces /voz_probar /voz_usar /conversar /avatar /salir",
         title="🤖 Asistente Virtual Profundo", border_style="cyan",
     ))
 
@@ -291,6 +293,58 @@ def main() -> None:
             else:
                 comando = None
             if comando:
+                continue
+            if lower.startswith("/programar "):
+                from tools.registry import call_tool
+                console.print(call_tool("programar_cambio", json.dumps({"objetivo": prompt.partition(" ")[2]})))
+                continue
+            if lower.startswith(("/revisar ", "/aprobar ", "/rechazar ", "/deshacer ")):
+                from core import programador
+                comando, _, id_tarea = prompt.partition(" ")
+                id_tarea = id_tarea.strip("[] ")
+                tarea = tareas.obtener(id_tarea)
+                if not tarea or tarea["tipo"] != "programa":
+                    console.print("[yellow]No hay un cambio de código con ese id. Míralos con /tareas.[/yellow]")
+                    continue
+                extra = tareas.datos(tarea)
+                try:
+                    if comando.lower() == "/aprobar" and not extra:
+                        console.print("Cambio aprobado: el agente empieza en segundo plano y te aviso al terminar."
+                                      if tareas.autorizar_inicio(id_tarea) else "Ese cambio no está esperando aprobación para empezar.")
+                    elif comando.lower() == "/revisar":
+                        texto = programador.diff(id_tarea)
+                        console.print(Panel(tarea["resultado"] or "", title=f"Cambio {id_tarea}: {tarea['objetivo'][:60]}",
+                                            border_style="cyan"))
+                        console.print(Syntax(texto or "(sin cambios)", "diff", line_numbers=False, word_wrap=True))
+                        avisos = programador.avisos_de_seguridad(texto)
+                        if avisos:
+                            console.print(Panel("\n".join(avisos[:30]), title="⚠ Revisa con cuidado: toca seguridad, comandos o secretos",
+                                                border_style="red"))
+                        console.print(f"[dim]/aprobar {id_tarea} para aplicarlo · /rechazar {id_tarea} para descartarlo[/dim]")
+                    elif comando.lower() == "/aprobar":
+                        if tarea["estado"] != "esperando_autorizacion":
+                            console.print("Ese cambio no está esperando revisión.")
+                        elif not extra.get("pruebas_ok") and not confirmar_consola("⚠ Las pruebas FALLAN con este cambio. ¿Aplicarlo de todos modos?"):
+                            console.print("No se aplicó.")
+                        elif confirmar_consola(f"¿Aplicar a tu código los cambios en {', '.join(extra.get('archivos', []))}?"):
+                            merge = programador.aprobar(id_tarea)
+                            tareas._actualizar(id_tarea, "aplicado por el usuario", estado="completada", proximo_paso=None,
+                                               datos=json.dumps({**extra, "merge": merge}))
+                            console.print(f"[green]Aplicado (commit {merge[:7]}). Reinicia el asistente para usarlo. "
+                                          f"Si algo va mal: /deshacer {id_tarea}[/green]")
+                    elif comando.lower() == "/rechazar":
+                        programador.rechazar(id_tarea)
+                        tareas._actualizar(id_tarea, "rechazado por el usuario", estado="cancelada", proximo_paso=None)
+                        console.print(f"Cambio {id_tarea} descartado; tu código no se tocó.")
+                    elif comando.lower() == "/deshacer":
+                        if not extra.get("merge"):
+                            console.print("Ese cambio no se ha aplicado, no hay nada que deshacer.")
+                        else:
+                            revert = programador.deshacer(extra["merge"])
+                            tareas._actualizar(id_tarea, "deshecho por el usuario", datos=json.dumps({**extra, "revert": revert}))
+                            console.print(f"[green]Cambio deshecho (commit {revert[:7]}). Reinicia el asistente.[/green]")
+                except Exception as exc:
+                    console.print(f"[red]No se pudo: {exc}[/red]")
                 continue
             if lower.startswith("/auditoria"):
                 from core import auditoria
