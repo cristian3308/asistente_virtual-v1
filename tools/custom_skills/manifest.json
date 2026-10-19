@@ -17,28 +17,28 @@
     "name": "formatear_reporte_clima",
     "description": "formatea un reporte meteorológico indicando ubicación, temperatura actual con hora si existe, condición del viento, rango de temperaturas máximas y mínimas, probabilidad de lluvia y una conclusión breve, manejando datos incompletos",
     "file": "formatear_reporte_clima.py",
-    "sha256": "2018132bfe8c34f5e685559cb8534ac90ebc4cb15c093f071f080982948d5410",
+    "sha256": "54884c995febbf00ba3cbb80011c457eaee95e8e0e9c810f24ef0e68b49bd1d5",
     "approved": true
   },
   {
     "name": "dibujar_circulo",
     "description": "Dibuja un círculo de texto en la pantalla permitiendo elegir el radio, el carácter y si se rellena.",
     "file": "dibujar_circulo.py",
-    "sha256": "8235e8e00f679cdfd464fdf05f1cf794406ea01a15e608abf1fd8802ec90067f",
+    "sha256": "fd35150f394c39ecb1aaf830ef693fe03f7840af8b6a259e061d50c4891251f2",
     "approved": true
   },
   {
     "name": "dibujar_cuadrado",
     "description": "Dibuja un cuadrado de texto en pantalla indicando el lado en caracteres, el carácter de relleno y si se rellena por dentro",
     "file": "dibujar_cuadrado.py",
-    "sha256": "e49ec5fc6a253bd0f8708eb6fdb521e1bea48ff5ea0f6b4d9fef857ead386a92",
+    "sha256": "5de65e5672969cee00b246b8f60ec20505b89697ce30da9715a896ac0334dd77",
     "approved": true
   },
   {
     "name": "dibujar_caricatura",
     "description": "dibujar una caricatura ASCII detallada de un humano, robot o gato con nivel de detalle 1, 2 o 3 y nombre opcional encima",
     "file": "dibujar_caricatura.py",
-    "sha256": "e2f775064c405ff235a03c1d2c1b3b8f288c9e204d09f83498c292399f1d8f94",
+    "sha256": "4b74872211cf0213fc026febdd5db14be7d289562e560f080dac08e517b0436a",
     "approved": true
   }
 ]

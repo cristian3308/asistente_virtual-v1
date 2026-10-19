@@ -269,7 +269,8 @@ def crear_y_cargar_herramienta(
             return f"Falló pip: {result.stderr[-1500:]}"
     CUSTOM_DIR.mkdir(parents=True, exist_ok=True)
     path = CUSTOM_DIR / f"{nombre_funcion}.py"
-    path.write_text(codigo_python.rstrip() + "\n", encoding="utf-8")
+    guardado = codigo_python.rstrip() + "\n"
+    path.write_text(guardado, encoding="utf-8")
     function = _load(nombre_funcion, path)
     _register(nombre_funcion, descripcion, function)
     items = [item for item in _manifest() if item.get("name") != nombre_funcion]
@@ -277,7 +278,8 @@ def crear_y_cargar_herramienta(
         "name": nombre_funcion,
         "description": descripcion,
         "file": path.name,
-        "sha256": hashlib.sha256(codigo_python.encode("utf-8")).hexdigest(),
+        # La huella es la del archivo tal como queda guardado, o no coincidiría al arrancar.
+        "sha256": hashlib.sha256(guardado.encode("utf-8")).hexdigest(),
         "approved": True,
     })
     _save_manifest(items)
@@ -285,6 +287,14 @@ def crear_y_cargar_herramienta(
     from core import auditoria
     auditoria.registrar("habilidad", nombre_funcion, descripcion, "instalada", sha256=items[-1]["sha256"])
     return f"Habilidad '{nombre_funcion}' validada, cargada y registrada en caliente."
+
+
+def _corregir_huella(nombre: str, digest: str) -> None:
+    items = _manifest()
+    for item in items:
+        if item.get("name") == nombre:
+            item["sha256"] = digest
+    _save_manifest(items)
 
 
 def cargar_habilidades_guardadas() -> list[str]:
@@ -298,7 +308,13 @@ def cargar_habilidades_guardadas() -> list[str]:
             code = path.read_text(encoding="utf-8")
             item = next((x for x in _manifest() if x.get("name") == name), {})
             digest = hashlib.sha256(code.encode("utf-8")).hexdigest()
-            trusted = item.get("approved") is True and str(item.get("sha256", "")).lower() == digest
+            aprobada = str(item.get("sha256", "")).lower() if item.get("approved") is True else ""
+            trusted = aprobada == digest
+            if not trusted and aprobada and aprobada == hashlib.sha256(code.rstrip().encode("utf-8")).hexdigest():
+                # Habilidades guardadas antes del arreglo: la huella se calculó sin el salto de línea
+                # final. El código es idéntico al aprobado; se corrige la huella una sola vez.
+                _corregir_huella(name, digest)
+                trusted = True
             if trusted:
                 # La aprobación persistida incluye la huella del archivo.
                 function = _load(name, path)
