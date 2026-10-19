@@ -49,6 +49,8 @@ TOOL_SCHEMAS = [
     _tool("cancelar_tarea", "Cancela una tarea o recordatorio por su id.", {"id": {"type": "string"}}, ["id"]),
     _tool("automatizar_navegador", "Lee páginas o ejecuta acciones declarativas con Playwright.", {"url": {"type": "string"}, "acciones": {"type": "string"}}, ["url"]),
     _tool("listar_aplicaciones", "Lista las aplicaciones instaladas en el PC (menú Inicio y Microsoft Store); filtro opcional por nombre.", {"filtro": {"type": "string"}}),
+    _tool("reparar_habilidad", "Repara una habilidad aprendida que falló, usando el caso que la rompió como prueba obligatoria.", {"nombre": {"type": "string"}}, ["nombre"]),
+    _tool("ventana_activa", "Dice qué ventana y programa tiene delante el usuario y en cuál estaba antes de escribir."),
     _tool("listar_habilidades_disponibles", "Enumera las capacidades actuales, incluidas las aprendidas por Tool Forge."),
 ]
 _BUILTIN_TOOL_NAMES = {schema["function"]["name"] for schema in TOOL_SCHEMAS}
@@ -78,6 +80,9 @@ FUNCTIONS = {
     "cancelar_tarea": lambda a: _cancelar_tarea(str(a.get("id", ""))),
     "automatizar_navegador": lambda a: browser_tools.automatizar_navegador(a["url"], a.get("acciones", "[]")),
     "listar_aplicaciones": lambda a: system_tools.listar_aplicaciones(a.get("filtro", "")),
+    "ventana_activa": lambda a: system_tools.ventana_activa(),
+    "reparar_habilidad": lambda a: __import__("core.self_coder", fromlist=["reparar_habilidad"]).reparar_habilidad(
+        a.get("nombre") or a.get("name", "")),
     "listar_habilidades_disponibles": lambda a: listar_habilidades_disponibles(),
     "guardar_recuerdo_importante": lambda a: memory_tools.guardar_recuerdo_importante(a["dato"], a["categoria"]),
     "buscar_en_memoria_profunda": lambda a: memory_tools.buscar_en_memoria_profunda(a["consulta"]),
@@ -163,7 +168,7 @@ def obtener_herramientas_relevantes(prompt: str, es_local: bool) -> list | None:
     groups = {
         "hardware": {"estado_hardware", "listar_procesos_pesados", "auditar_puertos_locales"},
         "archivo": {"explorar_directorio", "leer_codigo_fuente", "estado_git", "indexar_proyecto_local"},
-        "pantalla": {"ver_pantalla_actual"},
+        "pantalla": {"ver_pantalla_actual", "ventana_activa"},
         "web": {"investigar_tema", "buscar_en_internet", "leer_documentacion_web"},
         "memoria": {"guardar_recuerdo_importante", "buscar_en_memoria_profunda", "buscar_en_boveda"},
         "nota": {"crear_o_actualizar_nota", "registrar_en_bitacora_diaria", "buscar_en_boveda"},
@@ -173,7 +178,7 @@ def obtener_herramientas_relevantes(prompt: str, es_local: bool) -> list | None:
         "tarea": {"crear_tarea", "listar_tareas", "cancelar_tarea"},
         "codigo_propio": {"programar_cambio"},
         "navegador": {"automatizar_navegador"},
-        "habilidad": {"listar_habilidades_disponibles", "autoprogramar_habilidad"},
+        "habilidad": {"listar_habilidades_disponibles", "autoprogramar_habilidad", "reparar_habilidad"},
         "aplicacion": {"abrir_aplicacion", "listar_aplicaciones"},
     }
     selected: set[str] = set()
@@ -193,7 +198,7 @@ def obtener_herramientas_relevantes(prompt: str, es_local: bool) -> list | None:
         "codigo_propio": ("tu código", "tu codigo", "tu bot", "modifícate", "modificate", "agrégale", "agregale",
                           "añádele", "añade un comando", "agrega un comando", "programa un cambio", "mejórate"),
         "navegador": ("navegador", "browser", "formulario", "página", "pagina", "playwright"),
-        "habilidad": ("habilidad", "capacidad", "puedes hacer", "sabes hacer", "no sabes", "aprende"),
+        "habilidad": ("habilidad", "capacidad", "puedes hacer", "sabes hacer", "no sabes", "aprende", "repara", "arregla"),
         "aplicacion": ("abre", "abrir", "aplicación", "aplicacion", "app", "programa", "instalado", "instalada"),
     }
     for group, words in keywords.items():
@@ -378,6 +383,12 @@ def call_tool(name: str, raw_arguments: str) -> str:
         tool = FUNCTIONS[name]
         target = getattr(tool, "_tool_target", None)
         result = str(_invoke_custom_with_timeout(target, _invoke_arguments(target, args)) if target is not None else tool(args))
+        if target is not None and result.startswith(("Error en habilidad aislada", "Habilidad cancelada", "Habilidad terminó sin resultado")):
+            # Habilidad aprendida rota: se guarda el caso exacto para poder repararla con una prueba.
+            from memory.learning_loop import registrar_fallo_habilidad
+            registrar_fallo_habilidad(name, args, result)
+            result += (f"\n(Esta habilidad aprendida falló. Ofrécele a Cristhian repararla con "
+                       f"reparar_habilidad(nombre=\"{name}\").)")
         auditoria.registrar("herramienta", name, args, result, ok=not result.startswith(("Error", "No se pudo")),
                             segundos=round(time.perf_counter() - inicio, 2))
         return result

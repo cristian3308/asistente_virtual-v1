@@ -556,6 +556,30 @@ def forjar_con_pruebas(objetivo: str, nombre_sugerido: str = "habilidad_generada
     return "No se pudo forjar la habilidad tras varios intentos:\n- " + "\n- ".join(errores[-4:])
 
 
+def reparar_habilidad(nombre: str) -> str:
+    """Repara una habilidad aprendida usando el caso exacto que la rompió como prueba obligatoria."""
+    from memory.learning_loop import ultimo_fallo
+
+    nombre = (nombre or "").strip()
+    ruta = CUSTOM_DIR / f"{nombre}.py"
+    if not re.fullmatch(r"[A-Za-z_]\w*", nombre) or not ruta.is_file():
+        return f"No conozco una habilidad aprendida llamada '{nombre}'."
+    fallo = ultimo_fallo(nombre)
+    if not fallo:
+        return f"No tengo registrado ningún fallo de '{nombre}'; dime con qué datos falló."
+    codigo = ruta.read_text(encoding="utf-8")
+    objetivo = (
+        f"Repara la habilidad existente `{nombre}`. Debe conservar el MISMO nombre de función y los mismos "
+        f"parámetros. Código actual:\n```python\n{codigo}\n```\n"
+        f"Falló al llamarla con {json.dumps(fallo.get('argumentos', {}), ensure_ascii=False)} → {fallo.get('error', '')[:400]}\n"
+        f"Incluye OBLIGATORIAMENTE una prueba con esos mismos argumentos que ahora devuelva un resultado correcto "
+        f"(o un mensaje claro en español si la entrada es inválida), además de las pruebas habituales."
+    )
+    from core import auditoria
+    auditoria.registrar("habilidad", f"reparar {nombre}", fallo.get("error", "")[:200])
+    return forjar_con_pruebas(objetivo, nombre)
+
+
 def forjar_habilidad_desde_instruccion(instruccion: str) -> str:
     """Genera una habilidad desde `/autoprogramar` con pruebas automáticas."""
     match = re.search(r"(?:llamada|llamado|nombre|herramienta)\s+([A-Za-z_]\w*)", instruccion, re.IGNORECASE)

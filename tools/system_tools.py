@@ -51,7 +51,7 @@ def listar_procesos_pesados() -> str:
 
 
 def explorar_directorio(ruta: str = ".") -> str:
-    path = Path(ruta).expanduser().resolve()
+    path = settings.resolver_ruta(ruta)
     if not settings.path_is_allowed(path):
         return "Acceso bloqueado: la carpeta está fuera de las rutas locales permitidas."
     if not path.is_dir():
@@ -108,3 +108,69 @@ def listar_aplicaciones(filtro: str = "") -> str:
     extra = f"\n… y {len(names) - len(shown)} más (usa un filtro)." if len(names) > len(shown) else ""
     header = f"Aplicaciones que coinciden con '{filtro}'" if query else "Aplicaciones instaladas"
     return f"{header} ({len(names)}):\n- " + "\n- ".join(shown) + extra
+
+
+# --- Ventana en primer plano -------------------------------------------------
+# Al preguntar "¿por qué me da este error?" la ventana activa es la consola del propio
+# asistente; por eso se recuerda en qué ventana estabas antes (solo título y programa).
+_PROPIAS = {"windowsterminal.exe", "powershell.exe", "pwsh.exe", "cmd.exe", "conhost.exe", "python.exe",
+            "electron.exe", "openconsole.exe"}
+_ventanas_recientes: list[tuple[str, str]] = []
+_vigilando = False
+
+
+def _ventana_en_primer_plano() -> tuple[str, str]:
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    hwnd = user32.GetForegroundWindow()
+    if not hwnd:
+        return "", ""
+    largo = user32.GetWindowTextLengthW(hwnd)
+    buffer = ctypes.create_unicode_buffer(largo + 1)
+    user32.GetWindowTextW(hwnd, buffer, largo + 1)
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    try:
+        programa = psutil.Process(pid.value).name()
+    except (psutil.Error, ValueError):
+        programa = "?"
+    return buffer.value, programa
+
+
+def iniciar_vigilancia_ventanas(intervalo: float = 1.0) -> None:
+    """Hilo ligero que recuerda las últimas ventanas (no propias) en las que estuviste."""
+    global _vigilando
+    if _vigilando:
+        return
+    _vigilando = True
+
+    def vigilar() -> None:
+        import time
+        while True:
+            try:
+                titulo, programa = _ventana_en_primer_plano()
+                if titulo and programa.lower() not in _PROPIAS and (not _ventanas_recientes or _ventanas_recientes[-1] != (titulo, programa)):
+                    _ventanas_recientes.append((titulo, programa))
+                    del _ventanas_recientes[:-5]
+            except Exception:
+                pass
+            time.sleep(intervalo)
+
+    import threading
+    threading.Thread(target=vigilar, name="vigilancia-ventanas", daemon=True).start()
+
+
+def ventana_activa() -> str:
+    """Qué ventana tienes delante y en cuál estabas antes de hablarle al asistente."""
+    try:
+        titulo, programa = _ventana_en_primer_plano()
+    except Exception as exc:
+        return f"No pude consultar la ventana activa: {exc}"
+    lineas = [f"Ventana en primer plano: «{titulo or '(sin título)'}» ({programa})"]
+    anteriores = [v for v in _ventanas_recientes if v != (titulo, programa)]
+    if anteriores:
+        ultimo_titulo, ultimo_programa = anteriores[-1]
+        lineas.append(f"Antes de escribirme estabas en: «{ultimo_titulo}» ({ultimo_programa})")
+    return "\n".join(lineas)

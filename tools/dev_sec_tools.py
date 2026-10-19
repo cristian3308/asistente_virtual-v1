@@ -29,7 +29,7 @@ def auditar_puertos_locales() -> str:
 
 
 def leer_codigo_fuente(ruta_archivo: str, linea_inicio: int = 1, linea_fin: int = 120) -> str:
-    path = Path(ruta_archivo).expanduser().resolve()
+    path = settings.resolver_ruta(ruta_archivo)
     if not settings.path_is_allowed(path):
         return "Lectura bloqueada: el archivo está fuera de las rutas locales permitidas."
     if path.name.lower().startswith(".env") or path.suffix.lower() in {".pem", ".key", ".p12", ".pfx"}:

@@ -26,6 +26,7 @@ from core.benchmark import medir_ollama
 from interfaces import avatar
 
 console = Console()
+CODIGO_REINICIO = 3  # iniciar_asistente.bat relanza el asistente con este código de salida
 
 
 def main() -> None:
@@ -42,6 +43,8 @@ def main() -> None:
     notificaciones.voz_activa = lambda: voice_enabled
     # Cerebro propio para el segundo plano: no comparte historial ni candado con la consola.
     motor_tareas = tareas.MotorTareas(crear_cerebro=AssistantBrain, notificar=notificaciones.notificar)
+    from tools.system_tools import iniciar_vigilancia_ventanas
+    iniciar_vigilancia_ventanas()  # recuerda en qué ventana estabas antes de escribirle
     recuperadas = motor_tareas.iniciar()
     pendientes = tareas.listar()
     if recuperadas or pendientes:
@@ -57,7 +60,7 @@ def main() -> None:
     console.print(Panel.fit(
         "Asistente Híbrido — Windows · RTX 3050 · OpenCode Go / Ollama\n"
         f"Ollama: {'activo' if settings.ollama_activo() else 'apagado'} | Cloud: {'configurado' if settings.cloud_configurado() else 'sin API key'}\n"
-        "Comandos: /estado /limpiar /indexar <ruta> /recuerdos /habilidades /cargar_habilidades /ver <pregunta> /centinela <on|off> /benchmark /modelo <codigo|razonamiento|rapido|local|turbo> /tareas /tarea <objetivo> /cancelar /pausar /reactivar /programar <cambio> /revisar /aprobar /rechazar /deshacer /olvidar /auditoria /parar /reanudar /voz /voces /voz_probar /voz_usar /conversar /avatar /salir",
+        "Comandos: /estado /limpiar /indexar <ruta> /recuerdos /habilidades /cargar_habilidades /ver <pregunta> /centinela <on|off> /benchmark /modelo <codigo|razonamiento|rapido|local|turbo> /tareas /tarea <objetivo> /cancelar /pausar /reactivar /programar <cambio> /revisar /aprobar /rechazar /deshacer /olvidar /auditoria /fallos /procedimientos /reiniciar /parar /reanudar /voz /voces /voz_probar /voz_usar /conversar /avatar /salir",
         title="🤖 Asistente Virtual Profundo", border_style="cyan",
     ))
 
@@ -330,7 +333,7 @@ def main() -> None:
                             merge = programador.aprobar(id_tarea)
                             tareas._actualizar(id_tarea, "aplicado por el usuario", estado="completada", proximo_paso=None,
                                                datos=json.dumps({**extra, "merge": merge}))
-                            console.print(f"[green]Aplicado (commit {merge[:7]}). Reinicia el asistente para usarlo. "
+                            console.print(f"[green]Aplicado (commit {merge[:7]}). Escribe /reiniciar para usarlo ya. "
                                           f"Si algo va mal: /deshacer {id_tarea}[/green]")
                     elif comando.lower() == "/rechazar":
                         programador.rechazar(id_tarea)
@@ -346,6 +349,32 @@ def main() -> None:
                 except Exception as exc:
                     console.print(f"[red]No se pudo: {exc}[/red]")
                 continue
+            if lower == "/fallos":
+                from memory.learning_loop import fallos_recientes
+                tabla = Table(title="Últimos fallos de herramientas (repáralos con: repara la habilidad <nombre>)")
+                for columna in ("fecha", "herramienta", "argumentos", "error"):
+                    tabla.add_column(columna, overflow="fold")
+                for f in fallos_recientes(15):
+                    tabla.add_row(f["fecha"][5:16], f["herramienta"], json.dumps(f.get("argumentos", ""), ensure_ascii=False)[:50],
+                                  f["error"][:90])
+                console.print(tabla if tabla.rows else "[dim]Sin fallos registrados.[/dim]")
+                continue
+            if lower == "/procedimientos":
+                from memory import procedimientos
+                tabla = Table(title="Procedimientos aprendidos (recetas que funcionaron)")
+                for columna in ("id", "para", "pasos", "éxitos", "fallos"):
+                    tabla.add_column(columna, overflow="fold")
+                for p in procedimientos.listar():
+                    tabla.add_row(str(p["id"]), p["objetivo"][:60], " → ".join(x["herramienta"] for x in json.loads(p["pasos"])),
+                                  str(p["exitos"]), str(p["fallos"]))
+                console.print(tabla if tabla.rows else "[dim]Aún no aprendí procedimientos: aparecen al resolver algo con varias herramientas.[/dim]")
+                continue
+            if lower == "/reiniciar":
+                # iniciar_asistente.bat vuelve a abrir el asistente al recibir el código 3.
+                console.print("[cyan]Reiniciando para cargar los cambios...[/cyan]")
+                motor_tareas.detener()
+                avatar.detener()
+                sys.exit(CODIGO_REINICIO)
             if lower.startswith("/auditoria"):
                 from core import auditoria
                 tabla = Table(title="Últimas acciones (data/auditoria/acciones.jsonl)")

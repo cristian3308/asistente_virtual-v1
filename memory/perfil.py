@@ -85,7 +85,32 @@ def extraer_hechos(texto: str) -> list[tuple[str, str, str]]:
         hechos.append(("cumpleaños", m.group(1).strip(), "identidad"))
     if m := re.search(r"\b(?:recuerda|recuérdate|guarda|anota)\s+(?:que|esto:?)\s+(.{3,240})", t, re.IGNORECASE):
         hechos.append(("nota", m.group(1).strip(" .!"), "nota"))
+    hechos.extend(("regla", regla, "regla_operativa") for regla in extraer_reglas(texto))
     return hechos
+
+
+# Verbos en imperativo/subjuntivo: "siempre respóndeme…", "nunca uses…". Evita guardar
+# frases descriptivas como "siempre me pasa que…".
+_ORDEN = (r"(?:resp[oó]nd\w*|cont[eé]st\w*|h[aá]bl\w*|[uú]sa\w*|uses|di|digas|d[ií]me|ll[aá]m\w+|"
+          r"pregunt\w*|guard\w*|[aá]br\w*|escr[ií]b\w*|p[oó]n\w*|tr[aá]t\w*|av[ií]s\w*|haz|hagas|m[aá]nd\w*|"
+          r"env[ií]\w*|mu[eé]str\w*|incl[uú]y\w*|ev[ií]t\w*|confirm\w*|ejec[uú]t\w*|res[uú]m\w*|expl[ií]c\w*)")
+
+
+def extraer_reglas(texto: str) -> list[str]:
+    """Instrucciones permanentes de comportamiento que el usuario le da al asistente."""
+    if "?" in texto or texto.strip().startswith("¿"):
+        return []  # una pregunta ("¿siempre usas la nube?") no es una orden
+    t = " " + texto.strip() + " "
+    reglas = []
+    if m := re.search(r"\bcuando\s+te\s+(?:pida|diga|pregunte|hable)\s+(.{2,80}?),\s*(?:siempre\s+)?(.{3,160}?)[.!]?\s*$", t, re.IGNORECASE):
+        reglas.append(f"Cuando te pida {m.group(1).strip()}: {m.group(2).strip()}")
+    if m := re.search(r"\bno\s+uses\s+(.{2,60}?),\s*(?:mejor\s+)?usa\s+(.{2,80}?)[.!]?\s*$", t, re.IGNORECASE):
+        reglas.append(f"No uses {m.group(1).strip()}; usa {m.group(2).strip()}")
+    if m := re.search(r"\b(?:de\s+ahora\s+en\s+adelante|a\s+partir\s+de\s+ahora|desde\s+ahora)\s*,?\s+(.{3,180}?)[.!]?\s*$", t, re.IGNORECASE):
+        reglas.append(m.group(1).strip()[:1].upper() + m.group(1).strip()[1:])
+    elif m := re.search(rf"\b(siempre|nunca|jamás)\s+((?:me\s+)?{_ORDEN}\b.{{2,160}}?)[.!]?\s*$", t, re.IGNORECASE):
+        reglas.append(f"{m.group(1).capitalize()} {m.group(2).strip()}")
+    return reglas
 
 
 def guardar(clave: str, valor: str, categoria: str, fuente: str, confianza: float = 1.0) -> bool:
@@ -148,8 +173,14 @@ def asegurar_nombre(nombre: str) -> None:
                        "VALUES ('nombre', ?, 'identidad', 'configuración', 1.0, 1, ?, ?)", (nombre, _ahora(), _ahora()))
 
 
+def reglas_para_modelo(max_chars: int = 600) -> str:
+    """Reglas de comportamiento que el usuario ha dado; se inyectan como instrucciones permanentes."""
+    texto = "\n".join(f"- {h['valor']}" for h in hechos() if h["categoria"] == "regla_operativa")
+    return texto[:max_chars]
+
+
 def resumen_para_modelo(max_chars: int = 700) -> str:
     """Texto compacto con lo que se sabe del usuario, para incluir en cada respuesta."""
-    lineas = [f"- {h['clave']}: {h['valor']}" for h in hechos()]
+    lineas = [f"- {h['clave']}: {h['valor']}" for h in hechos() if h["categoria"] != "regla_operativa"]
     texto = "\n".join(lineas)
     return texto if len(texto) <= max_chars else texto[:max_chars].rsplit("\n", 1)[0] + "\n- (…más datos guardados)"

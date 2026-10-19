@@ -75,6 +75,17 @@ Detecta y guarda automáticamente lo que dices de ti ("me llamo…", "mi mamá s
 Corrige diciéndolo de nuevo; borra con `/olvidar` o "olvida que…". Se guarda solo en tu
 PC (`data/perfil.db`, `data/chroma_db`).
 
+### Reglas, procedimientos y contexto
+- **Reglas permanentes:** *"cuando te pida X, haz siempre Y"*, *"no uses Chrome, usa Brave"*, *"de ahora en
+  adelante…"*, *"nunca me hables de usted"* se guardan y se cumplen en cada respuesta (`/recuerdos` las muestra).
+- **Procedimientos aprendidos:** cuando resuelve algo encadenando varias herramientas, guarda la receta y la
+  usa como guía la próxima vez que pidas algo parecido (`/procedimientos`).
+- **Encadenamiento local:** el modelo local puede usar hasta 3 herramientas distintas por turno.
+- **Ventana activa:** al preguntar *"¿por qué me sale este error?"* sabe en qué ventana estabas antes de escribirle.
+- **Auto-reparación:** si una habilidad aprendida falla, se guarda el caso exacto y puede repararla con
+  *"repara la habilidad X"* (ese caso pasa a ser prueba obligatoria). `/fallos` lista los fallos.
+- **`/reiniciar`:** recarga el asistente con los cambios aplicados sin cerrar la ventana (lo hace `iniciar_asistente.bat`).
+
 ### Habilidades aprendidas
 Cuando le pides algo calculable o de texto que no sabe hacer, genera una función, **la
 prueba en un proceso aislado** (sin tus claves, sin archivos ni red, con límite de tiempo),

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 
 from openai import OpenAI
@@ -217,9 +218,19 @@ class ModelRouter:
             started = False
             try:
                 call_kwargs = self._with_tools_for(motor, prompt, kwargs)
-                stream = motor.client.chat.completions.create(
-                    model=motor.model, stream=True, **self._payload_for(motor, call_kwargs)
-                )
+                try:
+                    stream = motor.client.chat.completions.create(
+                        model=motor.model, stream=True, **self._payload_for(motor, call_kwargs)
+                    )
+                except AttributeError as exc:
+                    # Import parcial transitorio si otro hilo está importando librerías pesadas a la
+                    # vez: un segundo intento ya encuentra el módulo completo.
+                    if "partially initialized module" not in str(exc):
+                        raise
+                    time.sleep(0.5)
+                    stream = motor.client.chat.completions.create(
+                        model=motor.model, stream=True, **self._payload_for(motor, call_kwargs)
+                    )
                 for chunk in stream:
                     started = True
                     yield chunk, motor

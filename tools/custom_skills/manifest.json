@@ -12,5 +12,33 @@
     "file": "abrir_aplicacion.py",
     "sha256": "7493781b15a16a4bffaabf98ebb38d267d4cd8d13f81233587dd7bf0ce58e2dc",
     "approved": true
+  },
+  {
+    "name": "formatear_reporte_clima",
+    "description": "formatea un reporte meteorológico indicando ubicación, temperatura actual con hora si existe, condición del viento, rango de temperaturas máximas y mínimas, probabilidad de lluvia y una conclusión breve, manejando datos incompletos",
+    "file": "formatear_reporte_clima.py",
+    "sha256": "2018132bfe8c34f5e685559cb8534ac90ebc4cb15c093f071f080982948d5410",
+    "approved": true
+  },
+  {
+    "name": "dibujar_circulo",
+    "description": "Dibuja un círculo de texto en la pantalla permitiendo elegir el radio, el carácter y si se rellena.",
+    "file": "dibujar_circulo.py",
+    "sha256": "8235e8e00f679cdfd464fdf05f1cf794406ea01a15e608abf1fd8802ec90067f",
+    "approved": true
+  },
+  {
+    "name": "dibujar_cuadrado",
+    "description": "Dibuja un cuadrado de texto en pantalla indicando el lado en caracteres, el carácter de relleno y si se rellena por dentro",
+    "file": "dibujar_cuadrado.py",
+    "sha256": "e49ec5fc6a253bd0f8708eb6fdb521e1bea48ff5ea0f6b4d9fef857ead386a92",
+    "approved": true
+  },
+  {
+    "name": "dibujar_caricatura",
+    "description": "dibujar una caricatura ASCII detallada de un humano, robot o gato con nivel de detalle 1, 2 o 3 y nombre opcional encima",
+    "file": "dibujar_caricatura.py",
+    "sha256": "e2f775064c405ff235a03c1d2c1b3b8f288c9e204d09f83498c292399f1d8f94",
+    "approved": true
   }
 ]

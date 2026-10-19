@@ -27,11 +27,15 @@ if errorlevel 1 goto full
 REM Si Ollama esta instalado pero su puerto no responde, iniciarlo en segundo plano.
 powershell.exe -NoProfile -Command "$c=Get-Command ollama -ErrorAction SilentlyContinue; if ($c) { $t=Test-NetConnection 127.0.0.1 -Port 11434 -InformationLevel Quiet -WarningAction SilentlyContinue; if (-not $t) { Start-Process -FilePath $c.Source -ArgumentList 'serve' -WindowStyle Hidden } }"
 ".venv\Scripts\python.exe" main.py
+REM Codigo 3 = /reiniciar: vuelve a abrir el asistente con los cambios aplicados.
+if %errorlevel%==3 goto full
 goto end
 
 :telegram
 echo Iniciando el mismo main.py; el bot se activa si esta configurado en .env.
+:telegram_loop
 ".venv\Scripts\python.exe" main.py
+if %errorlevel%==3 goto telegram_loop
 goto end
 
 :diagnostic

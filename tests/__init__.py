@@ -9,11 +9,12 @@ import tempfile
 from pathlib import Path
 
 from core import auditoria, tareas
-from memory import learning_loop, perfil
+from memory import learning_loop, perfil, procedimientos
 
 _TMP = Path(tempfile.mkdtemp(prefix="asistente_tests_"))
 auditoria.REGISTRO = _TMP / "acciones.jsonl"
 learning_loop.FAILURE_LOG = _TMP / "fallos_herramientas.jsonl"
 tareas.DB_PATH = _TMP / "tareas.db"
 perfil.DB_PATH = _TMP / "perfil.db"
+procedimientos.DB_PATH = _TMP / "procedimientos.db"
 atexit.register(shutil.rmtree, _TMP, True)

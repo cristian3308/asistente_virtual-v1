@@ -83,6 +83,12 @@ def cloud_configurado() -> bool:
     return bool(API_KEY and API_KEY != "tu_api_key_real_de_opencode_aqui")
 
 
+def resolver_ruta(ruta: str | Path) -> Path:
+    """Rutas relativas ("tools/x.py") se interpretan desde la carpeta del proyecto, no desde donde se arrancó."""
+    destino = Path(ruta).expanduser()
+    return (destino if destino.is_absolute() else ROOT_DIR / destino).resolve()
+
+
 def path_is_allowed(path: Path) -> bool:
     """Evita que las herramientas locales salgan de las carpetas autorizadas."""
     resolved = path.expanduser().resolve()
