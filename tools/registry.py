@@ -9,7 +9,7 @@ import os
 import re
 import time
 
-from tools import dev_sec_tools, memory_tools, system_tools, vision_tools, web_tools, knowledge_vault, clipboard_tasks, browser_tools
+from tools import contrasenas, dev_sec_tools, memory_tools, system_tools, vision_tools, web_tools, knowledge_vault, clipboard_tasks, browser_tools
 
 
 def _tool(name: str, description: str, properties: dict | None = None, required: list[str] | None = None) -> dict:
@@ -52,6 +52,14 @@ TOOL_SCHEMAS = [
     _tool("reparar_habilidad", "Repara una habilidad aprendida que falló, usando el caso que la rompió como prueba obligatoria.", {"nombre": {"type": "string"}}, ["nombre"]),
     _tool("ventana_activa", "Dice qué ventana y programa tiene delante el usuario y en cuál estaba antes de escribir."),
     _tool("listar_habilidades_disponibles", "Enumera las capacidades actuales, incluidas las aprendidas por Tool Forge."),
+    _tool("generar_contraseña_robusta", "Genera una contraseña segura y devuelve su entropía y fortaleza.", {
+        "longitud": {"type": "integer"},
+        "incluir_mayusculas": {"type": "boolean"},
+        "incluir_minusculas": {"type": "boolean"},
+        "incluir_numeros": {"type": "boolean"},
+        "incluir_simbolos": {"type": "boolean"},
+        "evitar_ambiguos": {"type": "boolean"},
+    }),
 ]
 _BUILTIN_TOOL_NAMES = {schema["function"]["name"] for schema in TOOL_SCHEMAS}
 
@@ -84,6 +92,14 @@ FUNCTIONS = {
     "reparar_habilidad": lambda a: __import__("core.self_coder", fromlist=["reparar_habilidad"]).reparar_habilidad(
         a.get("nombre") or a.get("name", "")),
     "listar_habilidades_disponibles": lambda a: listar_habilidades_disponibles(),
+    "generar_contraseña_robusta": lambda a: contrasenas.generar_contraseña_robusta(
+        longitud=a.get("longitud", 16),
+        incluir_mayusculas=a.get("incluir_mayusculas", True),
+        incluir_minusculas=a.get("incluir_minusculas", True),
+        incluir_numeros=a.get("incluir_numeros", True),
+        incluir_simbolos=a.get("incluir_simbolos", True),
+        evitar_ambiguos=a.get("evitar_ambiguos", True),
+    ),
     "guardar_recuerdo_importante": lambda a: memory_tools.guardar_recuerdo_importante(a["dato"], a["categoria"]),
     "buscar_en_memoria_profunda": lambda a: memory_tools.buscar_en_memoria_profunda(a["consulta"]),
     "indexar_proyecto_local": lambda a: memory_tools.indexar_proyecto_local(a["ruta_carpeta"]),
@@ -180,6 +196,7 @@ def obtener_herramientas_relevantes(prompt: str, es_local: bool) -> list | None:
         "navegador": {"automatizar_navegador"},
         "habilidad": {"listar_habilidades_disponibles", "autoprogramar_habilidad", "reparar_habilidad"},
         "aplicacion": {"abrir_aplicacion", "listar_aplicaciones"},
+        "contrasena": {"generar_contraseña_robusta"},
     }
     selected: set[str] = set()
     priority: list[str] = []
@@ -200,6 +217,7 @@ def obtener_herramientas_relevantes(prompt: str, es_local: bool) -> list | None:
         "navegador": ("navegador", "browser", "formulario", "página", "pagina", "playwright"),
         "habilidad": ("habilidad", "capacidad", "puedes hacer", "sabes hacer", "no sabes", "aprende", "repara", "arregla"),
         "aplicacion": ("abre", "abrir", "aplicación", "aplicacion", "app", "programa", "instalado", "instalada"),
+        "contrasena": ("contraseña", "contrasena", "password", "contraseñas", "contrasenas", "genera una clave", "clave segura"),
     }
     for group, words in keywords.items():
         # Acepta el plural: "procesos", "habilidades", "puertos".
