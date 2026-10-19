@@ -126,13 +126,13 @@ Cada herramienta, confirmación, habilidad instalada y escalado a la nube queda 
 Solo responde a tu id. Desde Telegram no ejecuta PowerShell ni instala habilidades.
 
 ### App en el celular (web/PWA)
-Al arrancar, el asistente abre una app web en `http://127.0.0.1:8765` (solo en este PC):
+Al arrancar, el asistente abre una app web en `http://127.0.0.1:8780` (solo en este PC):
 chat en vivo, notas de voz, tareas, revisión y aprobación de cambios del agente (con el diff),
 memoria y actividad, y el botón **PARAR**. Escribe `/web` en la consola para ver la dirección y el token.
 
 Para usarla desde el Android sin abrir puertos ni exponerla a internet, con [Tailscale](https://tailscale.com):
 1. Instala Tailscale en el PC y en el celular e inicia sesión con la misma cuenta.
-2. En el PC, una sola vez: `tailscale serve --bg 8765` (le da HTTPS privado dentro de tu red Tailscale).
+2. En el PC, una sola vez: `tailscale serve --bg 8780` (le da HTTPS privado dentro de tu red Tailscale).
 3. `tailscale serve status` muestra la dirección `https://<pc>.<red>.ts.net`: ábrela en Chrome del celular,
    entra con el token y en el menú elige **Instalar app**.
 

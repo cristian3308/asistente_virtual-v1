@@ -101,6 +101,19 @@ class WebTests(unittest.TestCase):
         self.assertEqual(self.cliente.post(f"/api/cambios/{id_tarea}/aplicar", headers=self.auth, json={}).status_code, 409)
         self.assertEqual(self.cliente.get("/api/cambios/nada", headers=self.auth).status_code, 409)
 
+    def test_no_choca_con_el_puerto_del_avatar(self) -> None:
+        import socket
+        from config import settings
+        self.assertNotEqual(settings.WEB_PORT, 8765)   # 8765 lo usa el avatar
+        with socket.socket() as ocupado:
+            ocupado.bind(("127.0.0.1", 0))
+            ocupado.listen()
+            with patch.object(settings, "WEB_HOST", "127.0.0.1"), \
+                 patch.object(settings, "WEB_PORT", ocupado.getsockname()[1]):
+                self.assertFalse(web_app.puerto_libre())
+                self.assertIn("ya está en uso", web_app.iniciar(None))
+        self.assertIsNone(web_app._servidor)
+
     def test_actividad_mas_reciente_primero(self) -> None:
         auditoria.registrar("prueba", "primera")
         auditoria.registrar("prueba", "segunda")

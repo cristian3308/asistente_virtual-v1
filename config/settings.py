@@ -73,7 +73,7 @@ VOZ_MAXIMO = float(os.getenv("ASSISTANT_VOZ_MAXIMO", "60"))
 # en .env, se genera en data/web_token.txt.
 WEB = os.getenv("ASSISTANT_WEB", "1").strip().lower() not in {"0", "false", "no"}
 WEB_HOST = os.getenv("ASSISTANT_WEB_HOST", "127.0.0.1").strip() or "127.0.0.1"
-WEB_PORT = int(os.getenv("ASSISTANT_WEB_PORT", "8765"))
+WEB_PORT = int(os.getenv("ASSISTANT_WEB_PORT", "8780"))  # el 8765 es del avatar
 WEB_TOKEN = os.getenv("ASSISTANT_WEB_TOKEN", "").strip()
 
 

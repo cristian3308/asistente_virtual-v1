@@ -280,6 +280,9 @@ def iniciar(brain) -> str:
         app = crear_app(brain)
     except ImportError as exc:
         return f"App web no iniciada: falta {exc.name} (pip install -r requirements.txt)."
+    if not puerto_libre():
+        return (f"App web no iniciada: el puerto {settings.WEB_PORT} ya está en uso (¿otro asistente abierto?). "
+                "Ciérralo o cambia ASSISTANT_WEB_PORT en .env.")
     _servidor = uvicorn.Server(uvicorn.Config(app, host=settings.WEB_HOST, port=settings.WEB_PORT,
                                               log_level="warning", access_log=False))
 
@@ -291,6 +294,16 @@ def iniciar(brain) -> str:
 
     threading.Thread(target=correr, name="asistente-web", daemon=True).start()
     return f"App web en {direccion()} · /web muestra cómo entrar desde el celular."
+
+
+def puerto_libre() -> bool:
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as prueba:
+        try:
+            prueba.bind((settings.WEB_HOST, settings.WEB_PORT))
+        except OSError:
+            return False
+    return True
 
 
 def direccion() -> str:
