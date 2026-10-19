@@ -4,13 +4,28 @@ from __future__ import annotations
 from config.settings import CHROMA_PATH, DATA_DIR
 
 
+MODELO_EMBEDDINGS = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+
+
+def _ruta_modelo() -> str:
+    """La copia ya descargada si existe: carga sin consultar internet (y sin el aviso de HF_TOKEN)."""
+    try:
+        from huggingface_hub import snapshot_download
+        return snapshot_download(MODELO_EMBEDDINGS, local_files_only=True)
+    except Exception:
+        return MODELO_EMBEDDINGS   # primera vez: se descarga
+
+
 def _embedding_function():
     """Usa un modelo multilingüe adecuado para consultas en español."""
     from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
-    return SentenceTransformerEmbeddingFunction(
-        model_name="paraphrase-multilingual-MiniLM-L12-v2",
-        device="cpu",
-    )
+    try:
+        from transformers.utils import logging as registro_transformers
+        registro_transformers.disable_progress_bar()   # sin la barra "Loading weights" en la consola
+        registro_transformers.set_verbosity_error()
+    except Exception:
+        pass
+    return SentenceTransformerEmbeddingFunction(model_name=_ruta_modelo(), device="cpu")
 
 
 # Chroma guarda la función de embeddings de cada colección y rechaza otra
