@@ -5,6 +5,7 @@ import asyncio
 import logging
 import shutil
 import time
+from datetime import datetime
 from pathlib import Path
 
 from config import settings
@@ -12,6 +13,17 @@ from core.self_coder import confirmation_context, reset_confirmation_context
 
 logger = logging.getLogger(__name__)
 ESPERA_REINTENTO = 60   # segundos entre intentos de conexión si no hay red
+
+
+def _formatear_hora_local(ahora: datetime | None = None) -> str:
+    """Devuelve la fecha y hora actual del PC en español.
+
+    Formato: 'domingo 18/10/2026 15:42'.
+    """
+    ahora = ahora or datetime.now()
+    dias = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
+    dia_semana = dias[ahora.weekday()]
+    return f"{dia_semana} {ahora:%d/%m/%Y %H:%M}"
 
 
 def _authorized(update) -> bool:
@@ -165,6 +177,10 @@ def _ejecutar_bot(brain, Update, Application, CommandHandler, ContextTypes, Mess
         if _authorized(update):
             await update.message.reply_text("Asistente conectado y autorizado.")
 
+    async def hora_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if _authorized(update):
+            await update.message.reply_text(_formatear_hora_local())
+
     async def captura_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Envía una foto de la pantalla del PC. Solo al usuario autorizado; no se guarda en el PC."""
         if not _authorized(update):
@@ -190,7 +206,8 @@ def _ejecutar_bot(brain, Update, Application, CommandHandler, ContextTypes, Mess
             await update.message.reply_text(
                 "Hola, Cristhian. Escríbeme o mándame una nota de voz y te respondo (con voz si me hablas).\n"
                 "Por seguridad, desde aquí no ejecuto PowerShell ni instalo habilidades nuevas.\n"
-                "/tarea <objetivo> trabajo en segundo plano · /tareas · /captura foto de la pantalla · /parar emergencia · /reanudar · /estado"
+                "/tarea <objetivo> trabajo en segundo plano · /tareas · /captura foto de la pantalla · "
+                "/hora fecha y hora del PC · /parar emergencia · /reanudar · /estado"
             )
 
     async def al_conectar(application) -> None:
@@ -205,6 +222,7 @@ def _ejecutar_bot(brain, Update, Application, CommandHandler, ContextTypes, Mess
            .get_updates_read_timeout(40).build())
     app.add_handler(CommandHandler("start", start_handler))
     app.add_handler(CommandHandler("estado", status_handler))
+    app.add_handler(CommandHandler("hora", hora_handler))
     app.add_handler(CommandHandler("captura", captura_handler))
     app.add_handler(CommandHandler("parar", parar_handler))
     app.add_handler(CommandHandler("reanudar", reanudar_handler))
