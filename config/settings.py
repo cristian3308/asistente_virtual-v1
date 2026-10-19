@@ -68,6 +68,13 @@ WHISPER_VOCABULARIO = os.getenv(
 VOZ_SILENCIO_FIN = float(os.getenv("ASSISTANT_SILENCIO_FIN", "4.0"))
 VOZ_ESPERA_INICIO = float(os.getenv("ASSISTANT_ESPERA_INICIO", "8.0"))
 VOZ_MAXIMO = float(os.getenv("ASSISTANT_VOZ_MAXIMO", "60"))
+# App web/PWA (celular). Por defecto solo escucha en este PC; para el celular usa
+# `tailscale serve` (HTTPS privado) en vez de abrirla a la red. El token, si no está
+# en .env, se genera en data/web_token.txt.
+WEB = os.getenv("ASSISTANT_WEB", "1").strip().lower() not in {"0", "false", "no"}
+WEB_HOST = os.getenv("ASSISTANT_WEB_HOST", "127.0.0.1").strip() or "127.0.0.1"
+WEB_PORT = int(os.getenv("ASSISTANT_WEB_PORT", "8765"))
+WEB_TOKEN = os.getenv("ASSISTANT_WEB_TOKEN", "").strip()
 
 
 def ollama_activo() -> bool:

@@ -154,6 +154,17 @@ class AssistantBrain:
             self.history.append({"role": "assistant", "content": answer})
             self.memory.save("assistant", answer, f"Directo · {name}")
             return answer, f"Directo · {name}"
+        dato = perfil.responder_pregunta(prompt)
+        if dato:
+            # "¿Cómo me llamo?" sale de la memoria confirmada, no de lo que el modelo crea recordar.
+            if re.match(r"\s*(?:hola|hey|buenas|buenos)", prompt, re.IGNORECASE):
+                dato = "¡Hola! " + dato
+            if on_token:
+                on_token(dato)
+            self._last_turn_cloud = False
+            self.history.append({"role": "assistant", "content": dato})
+            self.memory.save("assistant", dato, "Memoria")
+            return dato, "Memoria"
         estado.publicar("thinking", motor="local")
         self._proactive_system_checks(prompt)
         # Compartido entre intentos: una herramienta ya ejecutada (abrir una app,
@@ -196,12 +207,17 @@ class AssistantBrain:
         """Historial con lo que se sabe del usuario añadido a las instrucciones de esta llamada.
 
         No depende de que el modelo decida buscar en la memoria: siempre la recibe.
+        Los datos confirmados y las reglas van justo antes del último mensaje del usuario:
+        el modelo pequeño atiende más a lo reciente, y así un error suyo que quedó en el
+        historial (p. ej. un nombre inventado) no se impone sobre lo que de verdad sabe.
         """
-        partes = ["\n\nDATOS CONFIRMADOS SOBRE EL USUARIO (úsalos con naturalidad; si algo no está aquí, "
-                  "di que no lo sabes y pregúntale):\n" + (perfil.resumen_para_modelo() or "- (aún nada)")]
+        recordatorio = ("DATOS CONFIRMADOS SOBRE EL USUARIO (son correctos aunque antes en la conversación se haya "
+                        "dicho otra cosa; úsalos con naturalidad y, si algo no está aquí, di que no lo sabes y pregúntale):\n"
+                        + (perfil.resumen_para_modelo() or "- (aún nada)"))
         reglas = perfil.reglas_para_modelo()
         if reglas:
-            partes.append("\nREGLAS QUE CRISTHIAN TE DIO (cúmplelas siempre, salvo que contradigan la seguridad):\n" + reglas)
+            recordatorio += "\nREGLAS QUE CRISTHIAN TE DIO (cúmplelas siempre, salvo que contradigan la seguridad):\n" + reglas
+        partes = []
         guia = procedimientos.guia_para_modelo(prompt)
         if guia:
             partes.append("\nPROCEDIMIENTO APRENDIDO:\n" + guia)
@@ -215,7 +231,9 @@ class AssistantBrain:
         if nuevos:
             partes.append("\nACABAS DE GUARDAR: " + "; ".join(nuevos) + ". Confírmaselo en una frase.")
         sistema = {**self.history[0], "content": self.history[0]["content"] + "".join(partes)}
-        return [sistema, *self.history[1:]]
+        resto = self.history[1:]
+        ultimo_usuario = max((i for i, m in enumerate(resto) if m.get("role") == "user"), default=len(resto))
+        return [sistema, *resto[:ultimo_usuario], {"role": "system", "content": recordatorio}, *resto[ultimo_usuario:]]
 
     _PREGUNTA_DE_PANTALLA = re.compile(
         r"\b(?:este|ese|el)\s+error\b|\bmi\s+pantalla\b|\b(?:esta|esa|la)\s+ventana\b|\blo\s+que\s+(?:estoy\s+viendo|tengo\s+abierto)"

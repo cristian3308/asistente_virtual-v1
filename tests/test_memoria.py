@@ -78,11 +78,41 @@ class MemoriaTests(unittest.TestCase):
         # "Reinicio": cerebro nuevo, sin historial de conversación.
         despues = _cerebro(RouterQueGuarda())
         with redirect_stdout(io.StringIO()):
-            despues.ask("¿Cómo se llama mi mamá?")
-        instrucciones = despues.router.vistos[0][0]["content"]
+            despues.ask("¿Qué le regalo a mi mamá?")
+        instrucciones = "\n".join(m["content"] for m in despues.router.vistos[0] if m["role"] == "system")
         self.assertIn("mamá: Jacky Lin", instrucciones)
         self.assertIn("le gusta: el café", instrucciones)
         self.assertNotIn("ACABAS DE GUARDAR", instrucciones)
+
+    def test_datos_confirmados_justo_antes_de_la_ultima_pregunta(self) -> None:
+        # Un error viejo del modelo en el historial ("Carlos") no debe quedar más cerca que la memoria.
+        perfil.aprender_de("Me llamo Cristhian")
+        brain = _cerebro(RouterQueGuarda())
+        brain.history += [{"role": "user", "content": "¿quién soy para ti?"},
+                          {"role": "assistant", "content": "Eres Carlos."}]
+        with redirect_stdout(io.StringIO()):
+            brain.ask("cuéntame algo de mí")
+        vistos = brain.router.vistos[0]
+        self.assertEqual(vistos[-1], {"role": "user", "content": "cuéntame algo de mí"})
+        self.assertEqual(vistos[-2]["role"], "system")
+        self.assertIn("nombre: Cristhian", vistos[-2]["content"])
+        self.assertNotIn("DATOS CONFIRMADOS", vistos[0]["content"])
+
+    def test_preguntas_sobre_ti_salen_de_la_memoria_sin_modelo(self) -> None:
+        perfil.aprender_de("Me llamo Cristhian y mi mamá se llama jacquelin")
+        brain = _cerebro(SimpleNamespace(stream=MagicMock(side_effect=AssertionError("no debe llamar al modelo"))))
+        casos = {
+            "hola, ¿cómo me llamo?": "¡Hola! Te llamas Cristhian.",
+            "cual es mi nombre": "Te llamas Cristhian.",
+            "¿cómo se llama mi mama?": "Tu mamá se llama Jacquelin.",
+        }
+        for pregunta, esperado in casos.items():
+            with self.subTest(pregunta=pregunta):
+                self.assertEqual(brain.ask(pregunta), (esperado, "Memoria"))
+        self.assertIn("No sé cómo se llama tu hermano", perfil.responder_pregunta("¿Cómo se llama mi hermano?"))
+        # Con algo más en el mensaje, decide el modelo (no se secuestra la petición).
+        self.assertIsNone(perfil.responder_pregunta("hola, ¿cómo me llamo? y abre chrome"))
+        self.assertIsNone(perfil.responder_pregunta("me llamo Cristhian"))
 
     def test_olvidar_por_conversacion(self) -> None:
         perfil.aprender_de("Me gusta el café")

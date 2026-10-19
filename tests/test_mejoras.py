@@ -97,7 +97,7 @@ class ReglasYProcedimientosTests(BaseTemporal):
     def test_reglas_se_inyectan_como_instrucciones(self) -> None:
         perfil.aprender_de("Siempre respóndeme en español y corto. Me gusta el café")
         perfil.aprender_de("No uses Chrome, usa Brave")
-        instrucciones = _cerebro(None)._mensajes_con_memoria("hola")[0]["content"]
+        instrucciones = "\n".join(m["content"] for m in _cerebro(None)._mensajes_con_memoria("hola") if m["role"] == "system")
         bloque_reglas = instrucciones.split("REGLAS QUE CRISTHIAN TE DIO")[1]
         self.assertIn("No uses Chrome; usa Brave", bloque_reglas)
         self.assertNotIn("No uses Chrome", instrucciones.split("REGLAS QUE CRISTHIAN TE DIO")[0])

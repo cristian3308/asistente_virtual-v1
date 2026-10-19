@@ -125,6 +125,21 @@ Cada herramienta, confirmación, habilidad instalada y escalado a la nube queda 
 
 Solo responde a tu id. Desde Telegram no ejecuta PowerShell ni instala habilidades.
 
+### App en el celular (web/PWA)
+Al arrancar, el asistente abre una app web en `http://127.0.0.1:8765` (solo en este PC):
+chat en vivo, notas de voz, tareas, revisión y aprobación de cambios del agente (con el diff),
+memoria y actividad, y el botón **PARAR**. Escribe `/web` en la consola para ver la dirección y el token.
+
+Para usarla desde el Android sin abrir puertos ni exponerla a internet, con [Tailscale](https://tailscale.com):
+1. Instala Tailscale en el PC y en el celular e inicia sesión con la misma cuenta.
+2. En el PC, una sola vez: `tailscale serve --bg 8765` (le da HTTPS privado dentro de tu red Tailscale).
+3. `tailscale serve status` muestra la dirección `https://<pc>.<red>.ts.net`: ábrela en Chrome del celular,
+   entra con el token y en el menú elige **Instalar app**.
+
+El token está en `data/web_token.txt` (o pon el tuyo en `ASSISTANT_WEB_TOKEN`, mínimo 16 caracteres).
+Tras 8 intentos fallidos se bloquea 15 minutos. Igual que Telegram, desde la app no ejecuta PowerShell ni
+instala habilidades, y todo queda en la auditoría con origen `web`. Desactívala con `ASSISTANT_WEB=0`.
+
 ## Seguridad
 - Las habilidades generadas se validan (lista blanca de módulos) y se ejecutan en un
   proceso aparte sin variables de entorno; instalarlas requiere tu confirmación.
@@ -151,6 +166,7 @@ Benchmark de modelos locales con herramientas: `.venv\Scripts\python.exe benchma
 | Dos robots en pantalla | Versiones antiguas: cierra el asistente; el robot se cierra solo con él. |
 | El robot no aparece | Falta `npm install` y `npm run build` en `avatar/`. |
 | Tarda en entender la voz | `WHISPER_MODEL=base` es más rápido (menos preciso). |
+| La app web no abre en el celular | Usa la dirección `https://….ts.net` de `tailscale serve status`, no `127.0.0.1`. El micrófono solo funciona por HTTPS. |
 | "ModelProtocolUnsupported" | Ese modelo de la nube no admite chat; usa kimi, qwen3.7-plus, glm-5.3 o minimax-m3. |
 
 ## Estructura
@@ -165,15 +181,15 @@ core/estado.py          estado observable (para el avatar)
 memory/                 perfil personal, historial, memoria semántica, fallos
 tools/                  herramientas (sistema, web, archivos, apps, notas…)
 voice/                  escucha (Silero + Whisper) y voz (Edge TTS)
-interfaces/             Telegram y avatar
+interfaces/             Telegram, app web/PWA (interfaces/web) y avatar
 avatar/                 robot animado (React + robot-heads + Electron)
 tests/                  pruebas automatizadas
 ```
 
 ## Hoja de ruta
 
-Hecho: chat local/nube con escalado automático, memoria personal persistente, voz, avatar, Telegram, habilidades con pruebas aisladas, investigación web, registro de auditoría, parada de emergencia, motor de tareas persistente con avisos y agente programador con revisión de cambios.
+Hecho: chat local/nube con escalado automático, memoria personal persistente, voz, avatar, Telegram, habilidades con pruebas aisladas, investigación web, registro de auditoría, parada de emergencia, motor de tareas persistente con avisos y agente programador con revisión de cambios, app web/PWA para el celular.
 
-Próximo: interfaz web/PWA con acceso seguro desde Android (Tailscale), visión multimodal, resúmenes de memoria.
+Próximo: control de ventanas (UI Automation), palabra de activación "Jarvis" con interrupción, permisos por habilidad y planificador de varios pasos.
 
 Créditos: avatar basado en [robot-heads](https://github.com/fayazara/robot-heads) (MIT).

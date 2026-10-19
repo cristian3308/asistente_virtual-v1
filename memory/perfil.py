@@ -184,3 +184,40 @@ def resumen_para_modelo(max_chars: int = 700) -> str:
     lineas = [f"- {h['clave']}: {h['valor']}" for h in hechos() if h["categoria"] != "regla_operativa"]
     texto = "\n".join(lineas)
     return texto if len(texto) <= max_chars else texto[:max_chars].rsplit("\n", 1)[0] + "\n- (…más datos guardados)"
+
+
+_SALUDO = r"(?:(?:hola|hey|buenas|buenos\s+d[ií]as|buenas\s+(?:tardes|noches))\s*,?\s*(?:jarvis|asistente)?\s*[,.!]*\s*)?"
+_PREGUNTA_NOMBRE = re.compile(
+    _SALUDO + r"¿?\s*(?:(?:te\s+acuerdas\s+de\s+|sabes\s+)?c[oó]mo\s+me\s+llamo|cu[aá]l\s+es\s+mi\s+nombre"
+    r"|(?:te\s+acuerdas\s+de\s+|sabes\s+)mi\s+nombre|qui[eé]n\s+soy(?:\s+yo)?)\s*[?!.]*", re.IGNORECASE)
+_PREGUNTA_RELACION = re.compile(
+    _SALUDO + r"¿?\s*(?:(?:sabes\s+)?c[oó]mo\s+se\s+llaman?|cu[aá]l\s+es\s+el\s+nombre\s+de|qui[eé]n\s+es)\s+mis?\s+"
+    r"(?P<rel>" + "|".join(sorted((re.escape(r) for r in _RELACIONES), key=len, reverse=True)) + r")s?\s*[?!.]*",
+    re.IGNORECASE)
+
+
+def _nombre_propio(valor: str) -> str:
+    return " ".join(p[:1].upper() + p[1:] for p in valor.split())
+
+
+def responder_pregunta(texto: str) -> str | None:
+    """Responde sin modelo "¿cómo me llamo?" o "¿cómo se llama mi mamá?" con los datos confirmados.
+
+    Un modelo pequeño a veces inventa (o copia un error anterior del historial); aquí la
+    respuesta sale de la memoria. Solo si el mensaje es únicamente esa pregunta.
+    """
+    texto = texto.strip()
+    if len(texto) > 80:
+        return None
+    if _PREGUNTA_NOMBRE.fullmatch(texto):
+        nombre = next((h["valor"] for h in hechos() if h["clave"] == "nombre"), None)
+        return f"Te llamas {_nombre_propio(nombre)}." if nombre else "Aún no sé tu nombre. ¿Cómo te llamas?"
+    pregunta = _PREGUNTA_RELACION.fullmatch(texto)
+    if pregunta:
+        relacion = pregunta.group("rel").lower()
+        clave = _NORMALIZA_RELACION.get(_sin_acentos(relacion), relacion)
+        valores = [h["valor"] for h in hechos() if _sin_acentos(h["clave"]) == _sin_acentos(clave)]
+        if not valores:
+            return f"No sé cómo se llama tu {clave}. ¿Me lo dices? (por ejemplo: «mi {clave} se llama …»)"
+        return f"Tu {clave} se llama {' y '.join(_nombre_propio(v) for v in valores)}."
+    return None

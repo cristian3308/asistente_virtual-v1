@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b1118">
+  <meta name="color-scheme" content="dark light">
+  <title>Asistente</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/icon-192.png">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <!-- Entrada con el token -->
+  <section id="login" class="login" hidden>
+    <div class="login-card">
+      <img src="/static/icon.svg" alt="" class="login-logo">
+      <h1>Asistente</h1>
+      <p>Escribe el token de acceso. Lo ves en el PC con <code>/web</code>.</p>
+      <form id="login-form">
+        <input id="login-token" type="password" autocomplete="current-password" placeholder="Token" required minlength="16">
+        <button type="submit" class="btn btn-primary">Entrar</button>
+      </form>
+      <p id="login-error" class="error" role="alert"></p>
+    </div>
+  </section>
+
+  <!-- Aplicación -->
+  <div id="app" class="app" hidden>
+    <header class="top">
+      <div class="presence">
+        <span id="estado-punto" class="dot" aria-hidden="true"></span>
+        <div>
+          <div class="title">Asistente</div>
+          <div id="estado-texto" class="subtitle">conectando…</div>
+        </div>
+      </div>
+      <button id="btn-parar" class="btn btn-stop" type="button">PARAR</button>
+    </header>
+
+    <main>
+      <!-- Chat -->
+      <section id="vista-chat" class="view active" aria-label="Chat">
+        <div id="mensajes" class="messages" aria-live="polite"></div>
+        <form id="chat-form" class="composer">
+          <button id="btn-mic" type="button" class="icon-btn" aria-label="Grabar nota de voz" title="Nota de voz">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-2.1A7 7 0 0 0 19 12h-2Z"/></svg>
+          </button>
+          <textarea id="chat-texto" rows="1" placeholder="Escríbele…" enterkeyhint="send" maxlength="8000"></textarea>
+          <button id="btn-enviar" type="submit" class="icon-btn send" aria-label="Enviar">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20.5 21 12 3 3.5 3 10l12 2-12 2z"/></svg>
+          </button>
+        </form>
+        <div class="chat-tools">
+          <label class="switch"><input id="leer-respuestas" type="checkbox"> <span>Leer respuestas en voz alta</span></label>
+          <button id="btn-borrar-chat" type="button" class="link">Limpiar pantalla</button>
+        </div>
+      </section>
+
+      <!-- Tareas -->
+      <section id="vista-tareas" class="view" aria-label="Tareas">
+        <form id="tarea-form" class="card stack">
+          <label for="tarea-objetivo" class="label">Nueva tarea en segundo plano</label>
+          <textarea id="tarea-objetivo" rows="2" placeholder="Ej.: investiga precios de la RTX 4060 y hazme un resumen" minlength="3" required></textarea>
+          <button type="submit" class="btn btn-primary">Poner en cola</button>
+        </form>
+        <div class="list-head">
+          <h2>Tareas</h2>
+          <label class="switch"><input id="tareas-todas" type="checkbox"> <span>Ver terminadas</span></label>
+        </div>
+        <div id="lista-tareas" class="list"></div>
+      </section>
+
+      <!-- Cambios de código -->
+      <section id="vista-cambios" class="view" aria-label="Cambios de código">
+        <div class="list-head">
+          <h2>Cambios del agente programador</h2>
+          <label class="switch"><input id="cambios-todos" type="checkbox"> <span>Historial</span></label>
+        </div>
+        <div id="lista-cambios" class="list"></div>
+        <div id="detalle-cambio" class="detail" hidden></div>
+      </section>
+
+      <!-- Memoria -->
+      <section id="vista-memoria" class="view" aria-label="Memoria">
+        <div class="list-head"><h2>Lo que sé de ti</h2></div>
+        <p class="hint">Se usa en cada respuesta. Para corregir algo, díselo de nuevo en el chat.</p>
+        <div id="lista-memoria" class="list"></div>
+      </section>
+
+      <!-- Actividad -->
+      <section id="vista-actividad" class="view" aria-label="Actividad">
+        <div class="list-head"><h2>Actividad reciente</h2><button id="btn-actividad" class="link" type="button">Actualizar</button></div>
+        <div id="lista-actividad" class="list compact"></div>
+      </section>
+    </main>
+
+    <nav class="tabs" aria-label="Secciones">
+      <button class="tab active" data-vista="chat" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v12H7l-3 3z"/></svg><span>Chat</span></button>
+      <button class="tab" data-vista="tareas" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11v2H9zm0 5h11v2H9zm0 5h11v2H9zM4 5h3v3H4zm0 5h3v3H4zm0 5h3v3H4z"/></svg><span>Tareas</span><b id="badge-tareas" class="badge" hidden></b></button>
+      <button class="tab" data-vista="cambios" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 17-5-5 5-5 1.4 1.4L5.8 12l3.6 3.6zm8 0-1.4-1.4 3.6-3.6-3.6-3.6L16 7l5 5z"/></svg><span>Cambios</span><b id="badge-cambios" class="badge" hidden></b></button>
+      <button class="tab" data-vista="memoria" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a7 7 0 0 0-4 12.7V19h8v-3.3A7 7 0 0 0 12 3Zm-3 18h6v-1H9z"/></svg><span>Memoria</span></button>
+      <button class="tab" data-vista="actividad" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13h4l3-8 4 14 3-6h4v-2h-5.2L14 13.5 10 1 5.6 11H3z"/></svg><span>Actividad</span></button>
+    </nav>
+  </div>
+
+  <div id="aviso" class="toast" role="status" hidden></div>
+</body>
+</html>

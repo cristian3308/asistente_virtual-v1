@@ -57,10 +57,13 @@ def main() -> None:
             console.print("[dim]Conectando con Telegram...[/dim]")
         except Exception as exc:
             console.print(f"[yellow]Telegram no pudo iniciarse: {exc}[/yellow]")
+    if settings.WEB:
+        from interfaces import web_app
+        console.print(f"[dim]{web_app.iniciar(brain)}[/dim]")
     console.print(Panel.fit(
         "Asistente Híbrido — Windows · RTX 3050 · OpenCode Go / Ollama\n"
         f"Ollama: {'activo' if settings.ollama_activo() else 'apagado'} | Cloud: {'configurado' if settings.cloud_configurado() else 'sin API key'}\n"
-        "Comandos: /estado /limpiar /indexar <ruta> /recuerdos /habilidades /cargar_habilidades /ver <pregunta> /centinela <on|off> /benchmark /modelo <codigo|razonamiento|rapido|local|turbo> /tareas /tarea <objetivo> /cancelar /pausar /reactivar /programar <cambio> /revisar /aprobar /rechazar /deshacer /olvidar /auditoria /fallos /procedimientos /reiniciar /parar /reanudar /voz /voces /voz_probar /voz_usar /conversar /avatar /salir",
+        "Comandos: /estado /limpiar /indexar <ruta> /recuerdos /habilidades /cargar_habilidades /ver <pregunta> /centinela <on|off> /benchmark /modelo <codigo|razonamiento|rapido|local|turbo> /tareas /tarea <objetivo> /cancelar /pausar /reactivar /programar <cambio> /revisar /aprobar /rechazar /deshacer /olvidar /auditoria /fallos /procedimientos /reiniciar /web /parar /reanudar /voz /voces /voz_probar /voz_usar /conversar /avatar /salir",
         title="🤖 Asistente Virtual Profundo", border_style="cyan",
     ))
 
@@ -302,50 +305,41 @@ def main() -> None:
                 console.print(call_tool("programar_cambio", json.dumps({"objetivo": prompt.partition(" ")[2]})))
                 continue
             if lower.startswith(("/revisar ", "/aprobar ", "/rechazar ", "/deshacer ")):
-                from core import programador
+                from core import cambios
                 comando, _, id_tarea = prompt.partition(" ")
-                id_tarea = id_tarea.strip("[] ")
-                tarea = tareas.obtener(id_tarea)
-                if not tarea or tarea["tipo"] != "programa":
-                    console.print("[yellow]No hay un cambio de código con ese id. Míralos con /tareas.[/yellow]")
-                    continue
-                extra = tareas.datos(tarea)
+                comando = comando.lower()
                 try:
-                    if comando.lower() == "/aprobar" and not extra:
-                        console.print("Cambio aprobado: el agente empieza en segundo plano y te aviso al terminar."
-                                      if tareas.autorizar_inicio(id_tarea) else "Ese cambio no está esperando aprobación para empezar.")
-                    elif comando.lower() == "/revisar":
-                        texto = programador.diff(id_tarea)
-                        console.print(Panel(tarea["resultado"] or "", title=f"Cambio {id_tarea}: {tarea['objetivo'][:60]}",
+                    info = cambios.revisar(id_tarea)
+                    tarea, extra = info["tarea"], info["datos"]
+                    if comando == "/aprobar" and info["puede_empezar"]:
+                        console.print(cambios.autorizar_inicio(tarea["id"]))
+                    elif comando == "/revisar":
+                        console.print(Panel(tarea["resultado"] or "", title=f"Cambio {tarea['id']}: {tarea['objetivo'][:60]}",
                                             border_style="cyan"))
-                        console.print(Syntax(texto or "(sin cambios)", "diff", line_numbers=False, word_wrap=True))
-                        avisos = programador.avisos_de_seguridad(texto)
-                        if avisos:
-                            console.print(Panel("\n".join(avisos[:30]), title="⚠ Revisa con cuidado: toca seguridad, comandos o secretos",
+                        console.print(Syntax(info["diff"] or "(sin cambios)", "diff", line_numbers=False, word_wrap=True))
+                        if info["avisos"]:
+                            console.print(Panel("\n".join(info["avisos"][:30]), title="⚠ Revisa con cuidado: toca seguridad, comandos o secretos",
                                                 border_style="red"))
-                        console.print(f"[dim]/aprobar {id_tarea} para aplicarlo · /rechazar {id_tarea} para descartarlo[/dim]")
-                    elif comando.lower() == "/aprobar":
-                        if tarea["estado"] != "esperando_autorizacion":
+                        console.print(f"[dim]/aprobar {tarea['id']} para aplicarlo · /rechazar {tarea['id']} para descartarlo[/dim]")
+                    elif comando == "/aprobar":
+                        if not info["puede_aplicar"]:
                             console.print("Ese cambio no está esperando revisión.")
-                        elif not extra.get("pruebas_ok") and not confirmar_consola("⚠ Las pruebas FALLAN con este cambio. ¿Aplicarlo de todos modos?"):
+                            continue
+                        forzar = not extra.get("pruebas_ok")
+                        if forzar and not confirmar_consola("⚠ Las pruebas FALLAN con este cambio. ¿Aplicarlo de todos modos?"):
                             console.print("No se aplicó.")
                         elif confirmar_consola(f"¿Aplicar a tu código los cambios en {', '.join(extra.get('archivos', []))}?"):
-                            merge = programador.aprobar(id_tarea)
-                            tareas._actualizar(id_tarea, "aplicado por el usuario", estado="completada", proximo_paso=None,
-                                               datos=json.dumps({**extra, "merge": merge}))
+                            merge = cambios.aplicar(tarea["id"], aceptar_pruebas_fallidas=forzar)
                             console.print(f"[green]Aplicado (commit {merge[:7]}). Escribe /reiniciar para usarlo ya. "
-                                          f"Si algo va mal: /deshacer {id_tarea}[/green]")
-                    elif comando.lower() == "/rechazar":
-                        programador.rechazar(id_tarea)
-                        tareas._actualizar(id_tarea, "rechazado por el usuario", estado="cancelada", proximo_paso=None)
-                        console.print(f"Cambio {id_tarea} descartado; tu código no se tocó.")
-                    elif comando.lower() == "/deshacer":
-                        if not extra.get("merge"):
-                            console.print("Ese cambio no se ha aplicado, no hay nada que deshacer.")
-                        else:
-                            revert = programador.deshacer(extra["merge"])
-                            tareas._actualizar(id_tarea, "deshecho por el usuario", datos=json.dumps({**extra, "revert": revert}))
-                            console.print(f"[green]Cambio deshecho (commit {revert[:7]}). Reinicia el asistente.[/green]")
+                                          f"Si algo va mal: /deshacer {tarea['id']}[/green]")
+                    elif comando == "/rechazar":
+                        cambios.rechazar(tarea["id"])
+                        console.print(f"Cambio {tarea['id']} descartado; tu código no se tocó.")
+                    elif comando == "/deshacer":
+                        revert = cambios.deshacer(tarea["id"])
+                        console.print(f"[green]Cambio deshecho (commit {revert[:7]}). Reinicia el asistente.[/green]")
+                except cambios.CambioInvalido as exc:
+                    console.print(f"[yellow]{exc} Míralos con /tareas.[/yellow]")
                 except Exception as exc:
                     console.print(f"[red]No se pudo: {exc}[/red]")
                 continue
@@ -369,11 +363,25 @@ def main() -> None:
                                   str(p["exitos"]), str(p["fallos"]))
                 console.print(tabla if tabla.rows else "[dim]Aún no aprendí procedimientos: aparecen al resolver algo con varias herramientas.[/dim]")
                 continue
+            if lower == "/web":
+                from interfaces import web_app
+                console.print(Panel(
+                    f"En este PC: {web_app.direccion()}\n"
+                    f"Token (no lo compartas): [bold]{web_app.token()}[/bold]\n\n"
+                    "En el celular, con Tailscale en ambos y este comando una sola vez en el PC:\n"
+                    f"  tailscale serve --bg {settings.WEB_PORT}\n"
+                    "luego abre en el celular la dirección https://<nombre-del-pc>.<tu-red>.ts.net que muestra "
+                    "`tailscale serve status`, entra con el token y en el menú de Chrome elige «Instalar app».",
+                    title="📱 App en el celular", border_style="cyan"))
+                continue
             if lower == "/reiniciar":
                 # iniciar_asistente.bat vuelve a abrir el asistente al recibir el código 3.
                 console.print("[cyan]Reiniciando para cargar los cambios...[/cyan]")
                 motor_tareas.detener()
                 avatar.detener()
+                if settings.WEB:
+                    from interfaces import web_app
+                    web_app.detener()
                 sys.exit(CODIGO_REINICIO)
             if lower.startswith("/auditoria"):
                 from core import auditoria
@@ -395,6 +403,9 @@ def main() -> None:
             break
     motor_tareas.detener()
     avatar.detener()
+    if settings.WEB:
+        from interfaces import web_app
+        web_app.detener()
     console.print("[dim]Cerrando asistente.[/dim]")
 
 
