@@ -4,12 +4,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
+import time
 from pathlib import Path
 
 from config import settings
 from core.self_coder import confirmation_context, reset_confirmation_context
 
 logger = logging.getLogger(__name__)
+ESPERA_REINTENTO = 60   # segundos entre intentos de conexión si no hay red
 
 
 def _authorized(update) -> bool:
@@ -43,11 +45,37 @@ def run_telegram(brain) -> None:
     except ImportError:
         _avisar("[red]Telegram no iniciado: python-telegram-bot no está instalado.[/red]")
         return
-    try:
-        _ejecutar_bot(brain, Update, Application, CommandHandler, ContextTypes, MessageHandler, filters)
-    except Exception as exc:  # token revocado, sin internet, otro proceso usando el mismo bot...
-        _avisar(f"[red]Telegram se detuvo: {type(exc).__name__}: "
-                f"{str(exc).replace(settings.TELEGRAM_BOT_TOKEN, '<token>')}[/red]")
+    from telegram.error import InvalidToken, NetworkError
+    _sin_trazas_de_red()
+    while True:
+        # Bucle de eventos nuevo en cada intento: el anterior queda cerrado si falló.
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        try:
+            _ejecutar_bot(brain, Update, Application, CommandHandler, ContextTypes, MessageHandler, filters)
+            return
+        except InvalidToken:
+            _avisar("[red]Telegram se detuvo: el token no es válido. Revisa TELEGRAM_BOT_TOKEN en .env.[/red]")
+            return
+        except NetworkError as exc:  # sin internet o Telegram lento al arrancar: reintenta solo
+            _avisar(f"[yellow]Telegram no pudo conectarse ({type(exc).__name__}). "
+                    f"Reintento en {ESPERA_REINTENTO} s; el resto del asistente sigue funcionando.[/yellow]")
+            time.sleep(ESPERA_REINTENTO)
+        except Exception as exc:  # otro proceso usando el mismo bot, etc.
+            _avisar(f"[red]Telegram se detuvo: {type(exc).__name__}: "
+                    f"{str(exc).replace(settings.TELEGRAM_BOT_TOKEN, '<token>')}[/red]")
+            return
+
+
+def _sin_trazas_de_red() -> None:
+    """Los cortes de red de Telegram se avisan en una línea; sin el traceback enorme en la consola."""
+    class _SinTraza(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            if record.module == "networkloop":
+                record.exc_info = None
+                record.exc_text = None
+            return True
+
+    logging.getLogger("telegram.ext").addFilter(_SinTraza())
 
 
 def _ejecutar_bot(brain, Update, Application, CommandHandler, ContextTypes, MessageHandler, filters) -> None:
@@ -171,8 +199,10 @@ def _ejecutar_bot(brain, Update, Application, CommandHandler, ContextTypes, Mess
                 "(Lo que enviaste con el asistente cerrado se descarta: vuelve a enviarlo.)[/green]")
 
     # concurrent_updates: /parar se atiende aunque haya una respuesta larga en curso.
+    # Tiempos amplios: al arrancar el PC está ocupado cargando modelos y la red puede ir lenta.
     app = (Application.builder().token(settings.TELEGRAM_BOT_TOKEN).post_init(al_conectar)
-           .concurrent_updates(True).build())
+           .concurrent_updates(True).connect_timeout(20).read_timeout(30).write_timeout(30)
+           .get_updates_read_timeout(40).build())
     app.add_handler(CommandHandler("start", start_handler))
     app.add_handler(CommandHandler("estado", status_handler))
     app.add_handler(CommandHandler("captura", captura_handler))
@@ -183,4 +213,4 @@ def _ejecutar_bot(brain, Update, Application, CommandHandler, ContextTypes, Mess
     app.add_handler(CommandHandler("cancelar", cancelar_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     app.add_handler(MessageHandler(filters.VOICE, voice_handler))
-    app.run_polling(drop_pending_updates=True)
+    app.run_polling(drop_pending_updates=True, bootstrap_retries=5)
