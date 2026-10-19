@@ -112,6 +112,36 @@ class ProgramadorTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             programador.aprobar("t1")
 
+    def test_lectura_paginada_y_sin_relecturas_inutiles(self) -> None:
+        grande = "\n".join(f"linea_{i} = {'x' * 60}" for i in range(400))
+        (self.repo / "grande.py").write_text(grande, encoding="utf-8")
+        taller = programador.Taller(self.repo)
+        primera = taller.leer_archivo("grande.py")
+        self.assertIn("continúa con leer_archivo", primera)
+        self.assertLessEqual(len(primera), programador.LIMITE_RESPUESTA)
+        siguiente = int(primera.rsplit("desde=", 1)[1].split(")")[0])
+        self.assertIn(f"{siguiente:4}| linea_{siguiente - 1}", taller.leer_archivo("grande.py", desde=siguiente))
+        self.assertIn("Ya leíste", taller.leer_archivo("grande.py"))
+
+    def test_presupuesto_agotado_guarda_el_avance_y_luego_continua(self) -> None:
+        with patch.object(programador, "MAX_LLAMADAS", 2):
+            hecho, _ = self._ejecutar([
+                _respuesta(_llamada(1, "escribir_archivo", ruta="nuevo.py", contenido="x = 1\n")),
+                _respuesta(_llamada(2, "leer_archivo", ruta="app.py")),
+            ])
+        self.assertTrue(hecho["incompleto"])
+        self.assertEqual(hecho["archivos"], ["nuevo.py"])
+        self.assertIn("/reactivar", hecho["resumen"])
+        hecho2, cliente = self._ejecutar([
+            _respuesta(_llamada(3, "ver_cambios")),
+            _respuesta(_llamada(4, "escribir_archivo", ruta="otro.py", contenido="y = 2\n")),
+            _respuesta(_llamada(5, "terminar", resumen="Terminado sobre el avance previo.")),
+        ])
+        primeros = cliente.chat.completions.create.call_args_list[0].kwargs["messages"]
+        self.assertTrue(any("trabajo previo" in m["content"] for m in primeros if m["role"] == "user"))
+        self.assertFalse(hecho2["incompleto"])
+        self.assertEqual(sorted(hecho2["archivos"]), ["nuevo.py", "otro.py"])
+
     def test_avisa_de_cambios_sensibles(self) -> None:
         texto = "+    if not _authorized(update):\n-    x = 1\n+    subprocess.run(cmd, shell=True)\n+    y = 2\n"
         self.assertEqual(len(programador.avisos_de_seguridad(texto)), 2)
@@ -141,6 +171,20 @@ class ProgramaEnMotorTests(unittest.TestCase):
         self.assertTrue(tareas.datos(tarea)["pruebas_ok"])
         self.assertIn("/revisar", avisos[-1])
         self.assertFalse(tareas.autorizar_inicio(id_tarea))   # ya hay un resultado: ahora toca /aprobar el diff
+
+    def test_cambio_incompleto_queda_para_continuar(self) -> None:
+        id_tarea = tareas.crear("programa", "algo grande", max_intentos=1)
+        avisos = []
+        motor = tareas.MotorTareas(crear_cerebro=MagicMock(), notificar=avisos.append)
+        hecho = {"resumen": "INCOMPLETO…", "pruebas": "PRUEBAS OK", "commit": "abc", "archivos": ["a.py"], "incompleto": True}
+        with patch.object(programador, "ejecutar", return_value=hecho):
+            motor.procesar_una()
+        tarea = tareas.obtener(id_tarea)
+        self.assertEqual(tarea["estado"], "fallida")
+        self.assertTrue(tareas.datos(tarea)["incompleto"])
+        self.assertIn("/reactivar", avisos[-1])
+        self.assertTrue(tareas.continuar(id_tarea))
+        self.assertEqual(tareas.obtener(id_tarea)["estado"], "pendiente")
 
 
 if __name__ == "__main__":

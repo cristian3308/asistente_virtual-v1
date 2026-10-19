@@ -27,7 +27,8 @@ from config import settings
 from core import auditoria
 
 TALLER = settings.DATA_DIR / "taller"
-MAX_LLAMADAS = 30
+MAX_LLAMADAS = 50
+LIMITE_RESPUESTA = 12000  # caracteres por resultado de herramienta que ve el modelo
 MAX_SEGUNDOS = 15 * 60
 # El agente no puede tocar su propio núcleo de seguridad, permisos ni supervisión.
 PROTEGIDOS = {
@@ -49,6 +50,11 @@ def _git(*args: str, cwd: Path | None = None, check: bool = True) -> str:
     return resultado.stdout
 
 
+def _base(raiz: Path) -> str:
+    """Commit de master del que salió la rama: master puede haber avanzado desde entonces."""
+    return _git("merge-base", "master", "HEAD", cwd=raiz).strip()
+
+
 def rama(id_tarea: str) -> str:
     return f"agente/{id_tarea}"
 
@@ -63,6 +69,7 @@ class Taller:
     def __init__(self, raiz: Path) -> None:
         self.raiz = raiz.resolve()
         self.editados: set[str] = set()
+        self._lecturas: dict[tuple[str, int], int] = {}
 
     def _ruta(self, ruta: str, escribir: bool = False) -> Path:
         destino = (self.raiz / ruta).resolve()
@@ -84,10 +91,41 @@ class Taller:
                 lineas.append(relativa.as_posix())
         return "\n".join(lineas[:300]) or "(vacío)"
 
-    def leer_archivo(self, ruta: str, desde: int = 1, hasta: int = 400) -> str:
-        lineas = self._ruta(ruta).read_text(encoding="utf-8", errors="replace").splitlines()
-        desde, hasta = max(1, int(desde)), min(len(lineas), int(hasta))
-        return "\n".join(f"{n:4}| {lineas[n - 1]}" for n in range(desde, hasta + 1)) or "(archivo vacío)"
+    def leer_archivo(self, ruta: str, desde: int = 1, hasta: int = 800) -> str:
+        """Lee por páginas que caben en la respuesta e indica dónde continuar.
+
+        Antes se recortaba la salida sin avisar y el agente releía el mismo archivo sin ver el final.
+        """
+        destino = self._ruta(ruta)
+        desde, hasta = max(1, int(desde)), int(hasta)
+        clave = (destino.as_posix(), desde)
+        marca = destino.stat().st_mtime_ns
+        if self._lecturas.get(clave) == marca:
+            return (f"Ya leíste {ruta} desde la línea {desde} y no ha cambiado desde entonces; usa lo que ya tienes "
+                    f"(o lee otra parte con desde=…).")
+        self._lecturas[clave] = marca
+        lineas = destino.read_text(encoding="utf-8", errors="replace").splitlines()
+        hasta = min(len(lineas), hasta)
+        salida, total = [], 0
+        for n in range(desde, hasta + 1):
+            linea = f"{n:4}| {lineas[n - 1]}"
+            if total + len(linea) > LIMITE_RESPUESTA - 200:
+                salida.append(f"[… página llena: continúa con leer_archivo(ruta=\"{ruta}\", desde={n}). "
+                              f"El archivo tiene {len(lineas)} líneas.]")
+                break
+            salida.append(linea)
+            total += len(linea) + 1
+        else:
+            if hasta < len(lineas):
+                salida.append(f"[… el archivo sigue hasta la línea {len(lineas)}.]")
+        return "\n".join(salida) or "(archivo vacío)"
+
+    def ver_cambios(self) -> str:
+        """Lo que cambió esta copia desde que salió de master (incluye lo no guardado)."""
+        nuevos = [linea[3:] for linea in _git("status", "--porcelain", cwd=self.raiz).splitlines() if linea.startswith("??")]
+        texto = ("Archivos nuevos (léelos con leer_archivo): " + ", ".join(nuevos) + "\n\n" if nuevos else "")
+        texto += _git("diff", _base(self.raiz), cwd=self.raiz)
+        return texto[:LIMITE_RESPUESTA] or "Aún no hay cambios."
 
     def buscar_texto(self, patron: str) -> str:
         salida = _git("grep", "-n", "-I", "--", patron, cwd=self.raiz, check=False)
@@ -141,6 +179,7 @@ _HERRAMIENTAS = [
      {"ruta": {"type": "string"}, "buscar": {"type": "string"}, "reemplazar": {"type": "string"}},
      ["ruta", "buscar", "reemplazar"]),
     ("ejecutar_pruebas", "Ejecuta las pruebas (todas, o un módulo como tests.test_x).", {"filtro": {"type": "string"}}, []),
+    ("ver_cambios", "Muestra el diff de lo que ya cambiaste respecto a master.", {}, []),
     ("terminar", "Termina cuando el cambio esté hecho y las pruebas pasen.", {"resumen": {"type": "string"}}, ["resumen"]),
 ]
 
@@ -186,6 +225,10 @@ def ejecutar(id_tarea: str, objetivo: str, cliente=None, modelo: str | None = No
         {"role": "system", "content": _INSTRUCCIONES.format(protegidos=", ".join(sorted(PROTEGIDOS)), objetivo=objetivo)},
         {"role": "user", "content": "Archivos del proyecto:\n" + taller.listar_archivos()},
     ]
+    if _git("status", "--porcelain", cwd=raiz).strip() or _git("diff", _base(raiz), "--stat", cwd=raiz).strip():
+        # Continuación (/reactivar): no empezar de cero.
+        mensajes.append({"role": "user", "content": "Ya hay trabajo previo tuyo en esta rama. Llama primero a "
+                                                    "`ver_cambios`, revísalo y continúa donde lo dejaste."})
     resumen, inicio = None, time.monotonic()
     for llamada in range(1, MAX_LLAMADAS + 1):
         auditoria.comprobar()
@@ -218,19 +261,25 @@ def ejecutar(id_tarea: str, objetivo: str, cliente=None, modelo: str | None = No
                                 salida[:150], ok=not salida.startswith("Error"), tarea=id_tarea)
             if registrar_paso:
                 registrar_paso(f"{c.function.name} {argumentos.get('ruta', '')}".strip())
-            mensajes.append({"role": "tool", "tool_call_id": c.id, "content": salida[:6000]})
+            mensajes.append({"role": "tool", "tool_call_id": c.id, "content": salida[:LIMITE_RESPUESTA]})
         if resumen is not None:
             break
-    if resumen is None:
-        raise RuntimeError(f"El agente no terminó en {MAX_LLAMADAS} llamadas.")
+        restantes = MAX_LLAMADAS - llamada
+        if restantes in (10, 3):
+            mensajes.append({"role": "user", "content": f"Te quedan {restantes} llamadas. Prioriza terminar: "
+                                                        "ejecuta las pruebas y llama a `terminar` con lo que falte."})
+    incompleto = resumen is None
+    if incompleto:
+        resumen = (f"INCOMPLETO: se agotaron las {MAX_LLAMADAS} llamadas antes de terminar. El avance quedó guardado; "
+                   "/reactivar para que continúe desde aquí.")
     pruebas = ejecutar_pruebas(raiz)  # verificación final independiente del agente
     _git("add", "-A", cwd=raiz)
-    if not _git("status", "--porcelain", cwd=raiz).strip():
-        return {"resumen": resumen, "pruebas": pruebas, "commit": None, "archivos": []}
-    _git("commit", "-m", f"Agente: {objetivo[:60]}\n\n{resumen[:1500]}", cwd=raiz)
-    archivos = _git("diff", "--name-only", "HEAD~1", "HEAD", cwd=raiz).split()
-    return {"resumen": resumen, "pruebas": pruebas, "commit": _git("rev-parse", "HEAD", cwd=raiz).strip(),
-            "archivos": archivos}
+    if _git("status", "--porcelain", cwd=raiz).strip():
+        _git("commit", "-m", f"Agente{' (parcial)' if incompleto else ''}: {objetivo[:60]}\n\n{resumen[:1500]}", cwd=raiz)
+    archivos = _git("diff", "--name-only", "master...HEAD", cwd=raiz).split()
+    hay_cambios = bool(archivos)
+    return {"resumen": resumen, "pruebas": pruebas, "incompleto": incompleto, "archivos": archivos,
+            "commit": _git("rev-parse", "HEAD", cwd=raiz).strip() if hay_cambios else None}
 
 
 def diff(id_tarea: str) -> str:

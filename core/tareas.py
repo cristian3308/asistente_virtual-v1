@@ -233,6 +233,17 @@ class MotorTareas:
         hecho = programador.ejecutar(tarea["id"], tarea["objetivo"],
                                      registrar_paso=lambda paso: _actualizar(tarea["id"], paso))
         pruebas_ok = hecho["pruebas"].startswith("PRUEBAS OK")
+        if hecho.get("incompleto"):
+            # Se agotó el presupuesto: el avance queda guardado en la rama para continuar.
+            _actualizar(tarea["id"], "presupuesto agotado; avance guardado", estado="fallida",
+                        resultado=f"{hecho['resumen']}\n\n{hecho['pruebas'][:1500]}",
+                        error="incompleto: se agotaron las llamadas",
+                        datos=json.dumps({"commit": hecho["commit"], "archivos": hecho["archivos"],
+                                          "pruebas_ok": pruebas_ok, "incompleto": True}),
+                        proximo_paso=f"ver avance: /revisar {tarea['id']} · continuar: /reactivar {tarea['id']}")
+            self._notificar(f"⏸️ Cambio {tarea['id']} sin terminar: se agotó el presupuesto, pero el avance está "
+                            f"guardado ({len(hecho['archivos'])} archivo(s)). Continúa con /reactivar {tarea['id']}.")
+            return
         if not hecho["commit"]:
             _actualizar(tarea["id"], "el agente no cambió ningún archivo", estado="completada",
                         resultado=hecho["resumen"], proximo_paso=None)
