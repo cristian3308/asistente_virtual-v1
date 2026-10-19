@@ -124,7 +124,9 @@ def crear_app(brain, clave: str | None = None):
         aceptar_pruebas_fallidas: bool = False
 
     @app.exception_handler(cambios.CambioInvalido)
+    @app.exception_handler(RuntimeError)
     async def cambio_invalido(_request, exc):
+        # Conflictos de git, cambios sin guardar…: mensaje claro en la app, no un error 500.
         return JSONResponse({"detail": str(exc)}, status_code=409)
 
     # ---------- páginas (sin token: no contienen datos) ----------

@@ -46,7 +46,8 @@ def _git(*args: str, cwd: Path | None = None, check: bool = True) -> str:
     resultado = subprocess.run(["git", *args], cwd=cwd or settings.ROOT_DIR, capture_output=True, text=True,
                                encoding="utf-8", errors="replace", timeout=120)
     if check and resultado.returncode != 0:
-        raise RuntimeError(f"git {' '.join(args)} falló: {resultado.stderr.strip()[:400]}")
+        detalle = (resultado.stderr.strip() or resultado.stdout.strip())[:400]   # merge escribe el conflicto en stdout
+        raise RuntimeError(f"git {' '.join(args)} falló: {detalle}")
     return resultado.stdout
 
 
@@ -292,11 +293,25 @@ def avisos_de_seguridad(texto_diff: str) -> list[str]:
             if linea[:1] in "+-" and not linea.startswith(("+++", "---")) and _SENSIBLES.search(linea)]
 
 
+class ConflictoAlAplicar(RuntimeError):
+    """El cambio del agente no encaja con el código actual (se modificó lo mismo después)."""
+
+
 def aprobar(id_tarea: str) -> str:
     """Aplica la rama en master con un merge revisable y reversible."""
     if _git("status", "--porcelain", "--untracked-files=no").strip():
         raise RuntimeError("Tienes cambios sin guardar en el proyecto: haz commit antes de aplicar el cambio del agente.")
-    _git("merge", "--no-ff", rama(id_tarea), "-m", f"Aplicar cambio del agente {id_tarea}")
+    try:
+        _git("merge", "--no-ff", rama(id_tarea), "-m", f"Aplicar cambio del agente {id_tarea}")
+    except RuntimeError:
+        # Nunca dejar el proyecto a medio fusionar: se deshace el intento y queda como estaba.
+        en_conflicto = _git("diff", "--name-only", "--diff-filter=U", check=False).split()
+        _git("merge", "--abort", check=False)
+        auditoria.registrar("programador", "aprobar", id_tarea, "conflicto: " + ", ".join(en_conflicto), ok=False)
+        raise ConflictoAlAplicar(
+            f"El cambio choca con cambios más recientes en {', '.join(en_conflicto) or 'el proyecto'}; "
+            "no se aplicó y tu código quedó como estaba. Recházalo y pide el cambio de nuevo para que "
+            "el agente lo haga sobre la versión actual.") from None
     merge = _git("rev-parse", "HEAD").strip()
     _limpiar(id_tarea, borrar_rama=False)
     auditoria.registrar("programador", "aprobar", id_tarea, merge)

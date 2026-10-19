@@ -95,6 +95,21 @@ class ProgramadorTests(unittest.TestCase):
         programador.deshacer(merge)
         self.assertIn("'hola'", (self.repo / "app.py").read_text(encoding="utf-8"))
 
+    def test_conflicto_al_aplicar_deja_el_proyecto_como_estaba(self) -> None:
+        self._ejecutar([
+            _respuesta(_llamada(1, "reemplazar_texto", ruta="app.py", buscar="'hola'", reemplazar="'hola Cristhian'")),
+            _respuesta(_llamada(2, "terminar", resumen="ok")),
+        ])
+        # Mientras esperaba revisión, la misma línea cambió en master.
+        (self.repo / "app.py").write_text("def saludo():\n    return 'buenas'\n", encoding="utf-8")
+        _git("commit", "-q", "-am", "cambio en master", cwd=self.repo)
+        with self.assertRaises(programador.ConflictoAlAplicar) as error:
+            programador.aprobar("t1")
+        self.assertIn("app.py", str(error.exception))
+        self.assertFalse((self.repo / ".git" / "MERGE_HEAD").exists())          # no quedó a medio fusionar
+        self.assertEqual(_git("status", "--porcelain", "--untracked-files=no", cwd=self.repo), "")
+        self.assertIn("'buenas'", (self.repo / "app.py").read_text(encoding="utf-8"))
+
     def test_rechazar_borra_rama_y_copia(self) -> None:
         self._ejecutar([
             _respuesta(_llamada(1, "escribir_archivo", ruta="nuevo.py", contenido="x = 1\n")),
