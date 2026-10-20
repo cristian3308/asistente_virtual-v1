@@ -59,11 +59,19 @@ AVATAR = os.getenv("ASSISTANT_AVATAR", "1").strip().lower() not in {"0", "false"
 # "small" 15,9 % de error en 3,4 s por frase; "base" 33,6 % en 1,3 s.
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small").strip() or "small"
 WHISPER_THREADS = int(os.getenv("WHISPER_THREADS", "8"))
-# Palabras que Whisper suele escribir mal; se le dan como pista.
+# Palabras que Whisper suele escribir mal: van como "hotwords" (prioridad) y dentro de una frase
+# de ejemplo. Medición 2026-10-19 (48 frases con ruido): dárselas como lista con comas daba 11,4 %
+# de error (Whisper imitaba las comas: "Arespotifa, Ponmúsica"); como frase + hotwords, 4,7 %.
 WHISPER_VOCABULARIO = os.getenv(
     "WHISPER_VOCABULARIO",
-    "Cristhian, Spotify, Obsidian, Ollama, Copilot, Discord, Telegram, WhatsApp, PowerShell, Python.",
+    "Jarvis Cristhian Spotify Obsidian Ollama Copilot Discord Telegram WhatsApp PowerShell Python",
 )
+WHISPER_PISTA = os.getenv(
+    "WHISPER_PISTA",
+    "Hola Jarvis, soy Cristhian. Abre Spotify, crea una nota en Obsidian, mándame un mensaje por Telegram "
+    "o WhatsApp y revisa el código en Python, PowerShell o Visual Studio Code.",
+)
+WHISPER_BEAM = int(os.getenv("WHISPER_BEAM", "5"))
 # Escucha: termina tras este silencio (s) cuando ya hablaste; deja de esperar si no empiezas.
 VOZ_SILENCIO_FIN = float(os.getenv("ASSISTANT_SILENCIO_FIN", "4.0"))
 VOZ_ESPERA_INICIO = float(os.getenv("ASSISTANT_ESPERA_INICIO", "8.0"))

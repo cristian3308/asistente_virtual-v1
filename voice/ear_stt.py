@@ -64,6 +64,25 @@ def _limpiar_transcripcion(texto: str) -> str:
     return "" if clave in _ALUCINACIONES else texto.strip()
 
 
+def vocabulario() -> str:
+    """Palabras con prioridad: las fijas más los nombres que conoce tu memoria (como los contactos de Google)."""
+    palabras = settings.WHISPER_VOCABULARIO.replace(",", " ").split()
+    try:
+        from memory import perfil
+        for hecho in perfil.hechos():
+            if hecho["categoria"] in {"identidad", "familia"} and len(hecho["valor"].split()) <= 3:
+                palabras += [p[:1].upper() + p[1:] for p in hecho["valor"].split()]
+    except Exception:
+        pass
+    return " ".join(dict.fromkeys(palabras))
+
+
+def _opciones() -> dict:
+    return {"language": "es", "beam_size": settings.WHISPER_BEAM, "vad_filter": True,
+            "initial_prompt": settings.WHISPER_PISTA, "hotwords": vocabulario(),
+            "condition_on_previous_text": False}
+
+
 def transcribir_audio(audio) -> str:
     """Transcribe audio mono float32 a 16 kHz."""
     import numpy as np
@@ -74,10 +93,7 @@ def transcribir_audio(audio) -> str:
     if 0 < pico < 0.5:
         # Micrófono bajo: normaliza el volumen (con tope para no amplificar solo ruido).
         audio = audio * min(0.9 / pico, 8.0)
-    segmentos, _ = _whisper().transcribe(
-        audio.astype(np.float32), language="es", beam_size=1, vad_filter=True,
-        initial_prompt=settings.WHISPER_VOCABULARIO, condition_on_previous_text=False,
-    )
+    segmentos, _ = _whisper().transcribe(audio.astype(np.float32), **_opciones())
     return _limpiar_transcripcion(" ".join(segmento.text.strip() for segmento in segmentos))
 
 
@@ -136,8 +152,5 @@ def escuchar(silencio_fin: float | None = None, espera_inicio: float | None = No
 
 def transcribir_archivo(path: str | Path) -> str:
     """Transcribe un archivo de audio existente (p. ej. notas de voz de Telegram)."""
-    segmentos, _ = _whisper().transcribe(
-        str(path), language="es", beam_size=1, vad_filter=True,
-        initial_prompt=settings.WHISPER_VOCABULARIO, condition_on_previous_text=False,
-    )
+    segmentos, _ = _whisper().transcribe(str(path), **_opciones())
     return _limpiar_transcripcion(" ".join(segmento.text.strip() for segmento in segmentos))

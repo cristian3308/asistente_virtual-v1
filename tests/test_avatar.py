@@ -96,7 +96,10 @@ class BocaSincronizadaTests(unittest.TestCase):
             hablante.feed("Hola Cristhian. ¿Cómo estás? Todo bien.")
             hablante.close()
         self.assertEqual([e[1] for e in eventos if e[0] == "suena"], ["Hola Cristhian.", "¿Cómo estás?", "Todo bien."])
-        self.assertTrue(any(e[0] == "sintetiza" and e[2] for e in eventos))
+        # Las frases siguientes ya están sintetizadas antes de que termine de sonar la primera.
+        ultima_sintesis = max(i for i, e in enumerate(eventos) if e[0] == "sintetiza")
+        segunda_suena = [i for i, e in enumerate(eventos) if e[0] == "suena"][1]
+        self.assertLess(ultima_sintesis, segunda_suena)
 
 
 class CerebroPublicaEstadosTests(unittest.TestCase):

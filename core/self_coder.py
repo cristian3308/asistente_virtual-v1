@@ -403,8 +403,12 @@ Reglas obligatorias del código:
 - Valida la entrada: ante datos inválidos devuelve un mensaje claro en español, nunca lances excepciones.
 - Devuelve siempre texto en español. Las pruebas deben poder comprobarse con el texto exacto de "contiene".
 
+- El resultado nunca afirma que algo pasará o se hizo fuera de la función ("sonará", "enviado", "guardado",
+  "programada", "activa"): la función solo calcula y devuelve texto.
+
 Si el objetivo NO se puede cumplir con estas reglas (necesita leer archivos o carpetas, el registro de Windows,
-comandos o PowerShell, internet, abrir programas o datos del sistema), no escribas código: responde solo
+comandos o PowerShell, internet, abrir programas, datos del sistema, programar alarmas, recordatorios o
+temporizadores, enviar mensajes o guardar datos), no escribas código: responde solo
 ```json
 {{"imposible": "motivo breve en español"}}
 ```
@@ -512,11 +516,20 @@ def _nombre_libre(nombre: str) -> str:
     return f"{nombre}_aprendida" if nombre in _BUILTIN_TOOL_NAMES else nombre
 
 
+_YA_EXISTE_INTEGRADA = re.compile(
+    r"\b(?:alarmas?|recordatorios?|recu[eé]rd(?:a|ame|ale)|av[ií]s(?:a|ame|ale)|despi[eé]rta(?:me)?|temporizador(?:es)?"
+    r"|cron[oó]metro|programa(?:r)?\s+un\s+aviso)\b", re.IGNORECASE)
+
+
 def forjar_con_pruebas(objetivo: str, nombre_sugerido: str = "habilidad_generada", intentos: int = 3,
                        max_llamadas: int = 5) -> str:
     """Genera, valida, prueba y repara una habilidad; la instala solo si el usuario la aprueba."""
     from core.router import ModelRouter
 
+    if _YA_EXISTE_INTEGRADA.search(objetivo or ""):
+        # Las habilidades no pueden esperar ni avisar a una hora: sería una alarma falsa.
+        return ("No hace falta aprender esto: el asistente ya sabe programar avisos. Herramientas integradas que "
+                "sí sirven: programar_recordatorio, listar_tareas, cancelar_tarea. Úsalas ahora.")
     router = ModelRouter()
     nombre_sugerido = _nombre_libre(nombre_sugerido)
     errores = []

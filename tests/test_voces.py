@@ -48,6 +48,52 @@ class VocesTests(unittest.TestCase):
         self.assertEqual(comunicador.call_args_list[1].kwargs["voice"], "es-MX-JorgeNeural")
 
 
+class VozFluidaTests(unittest.TestCase):
+    def _hablar(self, *trozos, demora=0.3):
+        import threading
+        import time
+        sonadas, ventana = [], threading.Lock()
+
+        def sintetizar(texto):
+            time.sleep(demora)            # Edge tarda segundos por frase
+            return Path(texto)
+
+        def reproducir(path):
+            with ventana:
+                sonadas.append(str(path))
+
+        with patch.object(mouth_tts, "_reproducir", side_effect=reproducir), patch.object(mouth_tts.shutil, "rmtree"):
+            hablante = mouth_tts.SentenceSpeaker(sintetizar=sintetizar)
+            inicio = time.perf_counter()
+            for trozo in trozos:
+                hablante.feed(trozo)
+            hablante.close()
+        return sonadas, time.perf_counter() - inicio
+
+    def test_sintetiza_en_paralelo_y_respeta_el_orden(self) -> None:
+        sonadas, segundos = self._hablar("Uno. Dos. Tres. Cuatro.")
+        self.assertEqual(sonadas, ["Uno.", "Dos.", "Tres.", "Cuatro."])
+        self.assertLess(segundos, 4 * 0.3)            # en serie serían 1,2 s
+
+    def test_primer_trozo_corta_en_la_coma_para_empezar_antes(self) -> None:
+        sonadas, _ = self._hablar("Claro, Cristhian, ya revisé tu computador, ", "y todo está en orden. Listo.", demora=0)
+        self.assertEqual(sonadas[0], "Claro, Cristhian, ya revisé tu computador, ")
+        self.assertEqual(sonadas[1:], ["y todo está en orden.", "Listo."])
+
+    def test_recorta_el_silencio_sobrante(self) -> None:
+        import numpy as np
+        sr = 24000
+        voz = np.ones(sr // 2, dtype=np.int16) * 8000
+        audio = np.concatenate([np.zeros(sr // 2, dtype=np.int16), voz, np.zeros(sr, dtype=np.int16)])
+        recortado = mouth_tts.recortar_silencios(audio, sr)
+        margen = sr * mouth_tts.SILENCIO_MAXIMO_MS // 1000
+        self.assertEqual(len(recortado), len(voz) + 2 * margen - 1)
+
+    def test_jarvis_no_suena_lento(self) -> None:
+        for nombre in ("jarvis", "jarvis_brian", "jarvis_britanico"):
+            self.assertFalse(mouth_tts.VOCES[nombre][1].startswith("-"), nombre)
+
+
 class NotaDeVozTests(unittest.TestCase):
     def test_convierte_a_ogg_opus_para_telegram(self) -> None:
         import av

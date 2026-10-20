@@ -31,12 +31,14 @@ def limpiar_texto(text: str) -> str:
 # grave y calmado del asistente de Iron Man; no es la voz real de Paul Bettany.
 VOCES: dict[str, tuple[str, str, str, str]] = {
     # nombre: (voz de Edge, velocidad, tono, descripción)
-    "colombiano": ("es-CO-GonzaloNeural", "+0%", "+0Hz", "Español de Colombia (la de siempre)"),
-    "jarvis": ("en-US-AndrewMultilingualNeural", "-5%", "-6Hz",
+    # Medición 2026-10-19: con -5 % las JARVIS hablaban a ~2,8 palabras/s (lento); con +8 % quedan
+    # en ~3,3, el ritmo de una conversación natural.
+    "colombiano": ("es-CO-GonzaloNeural", "+4%", "+0Hz", "Español de Colombia (la de siempre)"),
+    "jarvis": ("en-US-AndrewMultilingualNeural", "+8%", "-2Hz",
                "Estilo JARVIS: grave y calmado; habla español con acento inglés"),
-    "jarvis_britanico": ("en-GB-RyanNeural", "-5%", "-4Hz",
+    "jarvis_britanico": ("en-GB-RyanNeural", "+12%", "-2Hz",
                          "Británico puro, lo más parecido a 'Brian UK'; ideal si le hablas en inglés"),
-    "jarvis_brian": ("en-US-BrianMultilingualNeural", "-5%", "-6Hz", "Otra variante JARVIS multilingüe, algo más cálida"),
+    "jarvis_brian": ("en-US-BrianMultilingualNeural", "+12%", "-2Hz", "Otra variante JARVIS multilingüe, algo más cálida"),
     "britanico": ("en-GB-ThomasNeural", "+0%", "+0Hz", "Británico, tono natural"),
     "espanol": ("es-ES-AlvaroNeural", "+0%", "+0Hz", "Español de España"),
     "mexicano": ("es-MX-JorgeNeural", "+0%", "+0Hz", "Español de México"),
@@ -125,7 +127,25 @@ def envolvente(samples, sample_rate: int, frame_ms: int = FRAME_MS) -> list[floa
     return suave
 
 
+SILENCIO_MAXIMO_MS = 120   # Edge deja hasta ~1 s mudo al final de cada frase: se recorta a esto
+
+
+def recortar_silencios(muestras, sample_rate: int, margen_ms: int = SILENCIO_MAXIMO_MS):
+    """Quita el silencio sobrante al inicio y al final, para que las frases fluyan sin pausas raras."""
+    import numpy as np
+
+    mono = np.abs(muestras.astype(np.float32))
+    if mono.ndim == 2:
+        mono = mono.max(axis=1)
+    if not mono.size or not mono.max():
+        return muestras
+    voz = np.flatnonzero(mono > 0.02 * mono.max())
+    margen = sample_rate * margen_ms // 1000
+    return muestras[max(0, voz[0] - margen): voz[-1] + margen]
+
+
 def _reproducir(path: Path) -> None:
+    import numpy as np
     import pygame
 
     propio = not pygame.mixer.get_init()
@@ -134,7 +154,9 @@ def _reproducir(path: Path) -> None:
     try:
         sonido = pygame.mixer.Sound(str(path))
         try:
-            env = envolvente(pygame.sndarray.array(sonido), pygame.mixer.get_init()[0])
+            muestras = recortar_silencios(pygame.sndarray.array(sonido), pygame.mixer.get_init()[0])
+            sonido = pygame.sndarray.make_sound(np.ascontiguousarray(muestras))
+            env = envolvente(muestras, pygame.mixer.get_init()[0])
         except Exception:
             env = []
         estado.voz(True)
@@ -163,68 +185,90 @@ def hablar(text: str, voz: str | None = None) -> None:
 class SentenceSpeaker:
     """Habla frase a frase mientras el modelo sigue generando.
 
-    Un hilo sintetiza y otro reproduce: la siguiente frase ya está lista cuando
-    termina la actual, así no hay silencios de ~1 s entre frases.
+    Las frases se sintetizan en paralelo (Edge tarda 2–7 s por frase y en paralelo
+    tarda lo mismo que una sola) y se reproducen en orden: mientras suena una, las
+    siguientes ya se están generando. El primer trozo se corta en la primera coma
+    para empezar a hablar cuanto antes.
     """
 
-    def __init__(self) -> None:
-        self._sentences: queue.Queue[str | None] = queue.Queue()
-        self._audio: queue.Queue[Path | None] = queue.Queue(maxsize=3)
+    SINTESIS_EN_PARALELO = 3
+    PRIMER_TROZO_MINIMO = 25   # caracteres antes de poder cortar en una coma
+
+    def __init__(self, sintetizar=None) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+        import pygame  # noqa: F401  la primera importación tarda ~1 s: mejor ahora que antes de la primera frase
+
+        self._sintetizar = sintetizar or _sintetizar
+        self._pool = ThreadPoolExecutor(self.SINTESIS_EN_PARALELO, thread_name_prefix="tts-sintesis")
+        self._audio: queue.Queue = queue.Queue()   # futuros en el orden en que se dicen
         self._buffer = ""
-        self._synth = threading.Thread(target=self._synth_worker, name="tts-sintesis", daemon=True)
+        self._dichas = 0
         self._player = threading.Thread(target=self._play_worker, name="tts-reproduccion", daemon=True)
-        self._synth.start()
         self._player.start()
 
-    def _synth_worker(self) -> None:
-        while True:
-            sentence = self._sentences.get()
-            if sentence is None:
-                self._audio.put(None)
-                return
-            try:
-                path = _sintetizar(sentence)
-            except Exception:
-                path = None
-            if path is not None:
-                self._audio.put(path)
+    def _encolar(self, frase: str) -> None:
+        if limpiar_texto(frase):
+            self._dichas += 1
+            self._audio.put(self._pool.submit(self._sintetizar, frase))
 
     def _play_worker(self) -> None:
         import pygame
 
+        try:
+            # Abrir la tarjeta de sonido tarda ~1 s: se hace ya, mientras se sintetiza la primera frase.
+            if not pygame.mixer.get_init():
+                pygame.mixer.init()
+        except Exception:
+            pass
         while True:
-            path = self._audio.get()
-            if path is None:
+            futuro = self._audio.get()
+            if futuro is None:
                 if pygame.mixer.get_init():
                     pygame.mixer.quit()
                 return
             try:
+                path = futuro.result()
+            except Exception:
+                continue
+            if path is None:
+                continue
+            try:
                 if not pygame.mixer.get_init():
                     pygame.mixer.init()
-                _reproducir(path)
+                self._reproducir(path)
             except Exception:
                 pass
             finally:
                 shutil.rmtree(path.parent, ignore_errors=True)
 
+    @staticmethod
+    def _reproducir(path: Path) -> None:
+        _reproducir(path)
+
     def feed(self, text: str) -> None:
         self._buffer += text
+        if not self._dichas:
+            # Primera frase larga: se dice hasta la primera coma y el resto sigue después.
+            corte = re.search(r"[,;:]\s", self._buffer[self.PRIMER_TROZO_MINIMO:])
+            if corte and not re.search(r"[.!?]\s", self._buffer):
+                fin = self.PRIMER_TROZO_MINIMO + corte.end()
+                self._encolar(self._buffer[:fin])
+                self._buffer = self._buffer[fin:]
         parts = re.split(r"(?<=[.!?])\s+|\n+", self._buffer)
         self._buffer = parts.pop() if parts else ""
         for part in parts:
-            if limpiar_texto(part):
-                self._sentences.put(part)
+            self._encolar(part)
 
     def finish(self) -> None:
-        if limpiar_texto(self._buffer):
-            self._sentences.put(self._buffer)
+        self._encolar(self._buffer)
         self._buffer = ""
 
     def close(self) -> None:
         self.finish()
-        self._sentences.put(None)
+        self._audio.put(None)
         # No se vuelve a abrir el micrófono hasta que haya terminado de hablar.
         self._player.join()
+        self._pool.shutdown(wait=False)
 
 
 def nota_de_voz(text: str, max_chars: int = 900) -> Path | None:

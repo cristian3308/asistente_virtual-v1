@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from config import settings
-from core import auditoria, estado, self_coder
+from core import auditoria, entender, estado, self_coder
 from core.router import ModelRouter
 from memory import perfil, procedimientos
 from memory.episodic_db import EpisodicMemory
@@ -120,7 +120,9 @@ class AssistantBrain:
                     self._primera_respuesta.set()
 
     def _ask(self, prompt: str, on_token=None) -> tuple[str, str]:
-        prompt = prompt.strip()
+        saludo = bool(re.match(r"\s*(?:hola|hey|buenas|buenos)", prompt or "", re.IGNORECASE))
+        # "Oye Jarvis, abre Chrome." → "Abre Chrome": se entiende igual con o sin llamado y puntuación.
+        prompt = entender.normalizar(prompt)
         if not prompt:
             return "", "—"
         self.memory.save("user", prompt)
@@ -141,7 +143,7 @@ class AssistantBrain:
         self._nuevos_recuerdos = perfil.aprender_de(prompt)
         if self._nuevos_recuerdos:
             Console().print(f"[magenta]🧠 Recordaré: {'; '.join(self._nuevos_recuerdos)}[/magenta]")
-        directa = self._orden_directa(prompt)
+        directa = self._orden_directa(entender.para_comparar(prompt))
         if directa:
             name, arguments = directa
             estado.publicar("working", motor="directo", detalle="Abriendo…" if name == "abrir_aplicacion" else "Buscando apps…")
@@ -157,7 +159,7 @@ class AssistantBrain:
         dato = perfil.responder_pregunta(prompt)
         if dato:
             # "¿Cómo me llamo?" sale de la memoria confirmada, no de lo que el modelo crea recordar.
-            if re.match(r"\s*(?:hola|hey|buenas|buenos)", prompt, re.IGNORECASE):
+            if saludo:
                 dato = "¡Hola! " + dato
             if on_token:
                 on_token(dato)
