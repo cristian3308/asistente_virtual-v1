@@ -74,6 +74,61 @@ def main() -> None:
     vigia_presencia = presencia.Presencia(al_volver)
     if settings.SALUDO_AL_VOLVER:
         vigia_presencia.iniciar()
+
+    # --- "Jarvis": activación por voz, interrupción y seguimiento de la conversación ---
+    from voice import despertar
+    turno_voz = threading.Lock()
+    atendiendo = threading.Event()
+    SALIR_VOZ = {"salir", "terminar", "adiós", "adios", "gracias jarvis", "eso es todo", "nada"}
+
+    def escuchar_orden(espera: float) -> str:
+        from voice.ear_stt import escuchar
+        despertador.pausar(True)
+        try:
+            return escuchar(espera_inicio=espera)
+        finally:
+            despertador.pausar(False)
+
+    def atender_llamada(orden: str) -> None:
+        """Un turno por voz: si solo dijiste "Jarvis", te escucha; luego responde y espera tu siguiente frase."""
+        from voice import efectos
+        from voice.mouth_tts import SentenceSpeaker, interrumpido
+        if not turno_voz.acquire(timeout=30):
+            return
+        atendiendo.set()
+        try:
+            if not orden:
+                efectos.sonido("escucha")
+                orden = escuchar_orden(settings.VOZ_ESPERA_INICIO)
+                if not orden:
+                    return
+                efectos.sonido("listo")
+            while orden:
+                from core import entender
+                orden = entender.normalizar(orden)
+                console.print(f"\n[green]🎙️ Tú (voz):[/green] {orden}")
+                if orden.lower().strip(" .,!¡¿?") in SALIR_VOZ:
+                    efectos.sonido("listo")
+                    return
+                hablante = SentenceSpeaker(frase_de_espera=efectos.frase_de_espera)
+                try:
+                    answer, motor = brain.ask(orden, on_token=hablante.feed)
+                finally:
+                    hablante.close()   # espera a que termine de hablar (o a que lo calles)
+                console.print(Markdown(answer))
+                console.print(f"[dim]Motor: {motor} · di algo más o espera {settings.SEGUIMIENTO_SEGUNDOS:g} s[/dim]")
+                if interrumpido():
+                    return   # lo llamaste otra vez: esa nueva orden se atiende enseguida
+                orden = escuchar_orden(settings.SEGUIMIENTO_SEGUNDOS)
+                if orden:
+                    efectos.sonido("listo")
+        except Exception as exc:
+            console.print(f"[red]Error en el turno por voz: {exc}[/red]")
+        finally:
+            atendiendo.clear()
+            turno_voz.release()
+
+    despertador = despertar.Despertador(atender_llamada, ocupado=atendiendo.is_set)
     from memory import hindsight_memoria
     console.print(f"[dim]{hindsight_memoria.iniciar()}[/dim]")
     if settings.WEB:
@@ -82,9 +137,13 @@ def main() -> None:
     console.print(Panel.fit(
         "Asistente Híbrido — Windows · RTX 3050 · OpenCode Go / Ollama\n"
         f"Ollama: {'activo' if settings.ollama_activo() else 'apagado'} | Cloud: {'configurado' if settings.cloud_configurado() else 'sin API key'}\n"
-        "Comandos: /estado /limpiar /indexar <ruta> /recuerdos /habilidades /cargar_habilidades /ver <pregunta> /centinela <on|off> /benchmark /modelo <codigo|razonamiento|rapido|local|turbo> /tareas /tarea <objetivo> /cancelar /pausar /reactivar /programar <cambio> /revisar /aprobar /rechazar /deshacer /olvidar /auditoria /fallos /procedimientos /reiniciar /web /parar /reanudar /voz /voces /voz_probar /voz_usar /conversar /avatar /salir",
+        "Comandos: /estado /limpiar /indexar <ruta> /recuerdos /habilidades /cargar_habilidades /ver <pregunta> /centinela <on|off> /benchmark /modelo <codigo|razonamiento|rapido|local|turbo> /tareas /tarea <objetivo> /cancelar /pausar /reactivar /programar <cambio> /revisar /aprobar /rechazar /deshacer /olvidar /auditoria /fallos /procedimientos /reiniciar /web /jarvis <on|off> /parar /reanudar /voz /voces /voz_probar /voz_usar /conversar /avatar /salir",
         title="🤖 Asistente Virtual Profundo", border_style="cyan",
     ))
+    if settings.PALABRA_ACTIVACION:
+        from voice import efectos
+        efectos.precargar_frases()
+        console.print(f"[green]🎙️ {despertador.iniciar()}[/green]")
 
     def responder(prompt: str) -> None:
         """Genera una respuesta y, si corresponde, la reproduce completa."""
@@ -219,6 +278,15 @@ def main() -> None:
                     precargar()
                     efectos.precargar_frases()
                 console.print(f"Voz {'activada: pulsa Enter para grabar y escribe /voz para desactivar.' if voice_enabled else 'desactivada.'}")
+                continue
+            if lower.startswith("/jarvis"):
+                if lower.endswith("off"):
+                    despertador.detener()
+                    console.print("Ya no escucho \"Jarvis\". Actívalo con /jarvis on.")
+                else:
+                    from voice import efectos
+                    efectos.precargar_frases()
+                    console.print(f"[green]🎙️ {despertador.iniciar()}[/green]")
                 continue
             if lower == "/avatar":
                 console.print(avatar.detener() if avatar.abierto() else avatar.iniciar())
@@ -410,6 +478,7 @@ def main() -> None:
                 console.print("[cyan]Reiniciando para cargar los cambios...[/cyan]")
                 motor_tareas.detener()
                 vigia_presencia.detener()
+                despertador.detener()
                 hindsight_memoria.detener()
                 avatar.detener()
                 if settings.WEB:
@@ -436,6 +505,7 @@ def main() -> None:
             break
     motor_tareas.detener()
     vigia_presencia.detener()
+    despertador.detener()
     hindsight_memoria.detener()
     avatar.detener()
     if settings.WEB:

@@ -144,6 +144,24 @@ def recortar_silencios(muestras, sample_rate: int, margen_ms: int = SILENCIO_MAX
     return muestras[max(0, voz[0] - margen): voz[-1] + margen]
 
 
+_interrumpido = threading.Event()
+
+
+def detener_habla() -> None:
+    """Calla al asistente al instante (cuando le dices "Jarvis" mientras habla)."""
+    _interrumpido.set()
+    try:
+        import pygame
+        if pygame.mixer.get_init():
+            pygame.mixer.stop()
+    except Exception:
+        pass
+
+
+def interrumpido() -> bool:
+    return _interrumpido.is_set()
+
+
 def _reproducir(path: Path) -> None:
     import numpy as np
     import pygame
@@ -164,6 +182,9 @@ def _reproducir(path: Path) -> None:
             canal = sonido.play()
             estado.boca(env, FRAME_MS, int(time.time() * 1000) + LATENCIA_AUDIO_MS)
             while canal is not None and canal.get_busy():
+                if _interrumpido.is_set():
+                    canal.stop()
+                    break
                 pygame.time.wait(20)
         finally:
             estado.voz(False)
@@ -173,6 +194,7 @@ def _reproducir(path: Path) -> None:
 
 
 def hablar(text: str, voz: str | None = None) -> None:
+    _interrumpido.clear()
     path = _sintetizar(text, voz)
     if path is None:
         return
@@ -200,6 +222,7 @@ class SentenceSpeaker:
         from concurrent.futures import ThreadPoolExecutor
         import pygame  # noqa: F401  la primera importación tarda ~1 s: mejor ahora que antes de la primera frase
 
+        _interrumpido.clear()   # una respuesta nueva vuelve a hablar aunque antes lo hayas callado
         self._frase_de_espera = frase_de_espera   # función que devuelve la ruta de un audio ya grabado, o None
         self._sintetizar = sintetizar or _sintetizar
         self._pool = ThreadPoolExecutor(self.SINTESIS_EN_PARALELO, thread_name_prefix="tts-sintesis")
@@ -210,7 +233,7 @@ class SentenceSpeaker:
         self._player.start()
 
     def _encolar(self, frase: str) -> None:
-        if limpiar_texto(frase):
+        if limpiar_texto(frase) and not _interrumpido.is_set():
             self._dichas += 1
             self._audio.put(self._pool.submit(self._sintetizar, frase))
 
@@ -236,6 +259,9 @@ class SentenceSpeaker:
                 continue
             if path is None:
                 continue
+            if _interrumpido.is_set():   # lo callaste: lo que quedaba se descarta
+                shutil.rmtree(path.parent, ignore_errors=True)
+                continue
             try:
                 if not pygame.mixer.get_init():
                     pygame.mixer.init()
@@ -247,7 +273,7 @@ class SentenceSpeaker:
 
     def _rellenar_si_tarda(self) -> None:
         """Si la primera frase no está lista a tiempo, suena una frase de espera ya grabada."""
-        if self._frase_de_espera is None:
+        if self._frase_de_espera is None or _interrumpido.is_set():
             return
         limite = time.monotonic() + self.ESPERA_ANTES_DE_RELLENO
         try:
