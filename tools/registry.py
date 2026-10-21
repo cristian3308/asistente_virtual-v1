@@ -9,7 +9,7 @@ import os
 import re
 import time
 
-from tools import contrasenas, dev_sec_tools, internet_tools, rea_tools, memory_tools, system_tools, vision_tools, web_tools, knowledge_vault, clipboard_tasks, browser_tools
+from tools import contrasenas, dev_sec_tools, internet_tools, rea_tools, seguridad_tools, memory_tools, system_tools, vision_tools, web_tools, knowledge_vault, clipboard_tasks, browser_tools
 
 
 def _mirar_camara() -> str:
@@ -59,6 +59,8 @@ TOOL_SCHEMAS = [
     _tool("resumir_video_youtube", "Resume un video de YouTube a partir de sus subtítulos (qué dice, puntos clave). Úsala con enlaces youtube.com o youtu.be.", {"url": {"type": "string"}, "pregunta": {"type": "string"}}, ["url"]),
     _tool("leer_noticias_rss", "Muestra las últimas noticias de un canal RSS o Atom.", {"url": {"type": "string"}, "cantidad": {"type": "integer"}}, ["url"]),
     _tool("analizar_programa", "Ingeniería inversa estática con REA: analiza un programa, app o paquete SIN ejecutarlo (tipo: resumen, javascript o electron). Pide confirmación.", {"ruta": {"type": "string"}, "tipo": {"type": "string", "enum": ["resumen", "javascript", "electron"]}}, ["ruta"]),
+    _tool("informe_seguridad_red", "Dice qué programas aceptan conexiones desde toda la red (puertos expuestos), sin contar Windows ni el asistente.", {}),
+    _tool("cerrar_proceso", "Cierra un proceso por su PID (pide confirmación en la consola; nunca procesos de Windows ni del asistente).", {"pid": {"type": "integer"}}, ["pid"]),
     _tool("mirar_camara", "Mira por la cámara (si está encendida): si Cristhian está frente al PC, si lo reconoce y su expresión aproximada. Úsala para '¿me ves?', '¿cómo me veo?'.", {}),
     _tool("resumir_repositorio_github", "Explica qué es un repositorio público de GitHub (descripción, estrellas y README).", {"repositorio": {"type": "string"}}, ["repositorio"]),
     _tool("crear_o_actualizar_nota", "Guarda una nota Markdown en la bóveda.", {"titulo": {"type": "string"}, "contenido": {"type": "string"}, "carpeta": {"type": "string"}, "tags": {"type": "string"}}, ["titulo", "contenido"]),
@@ -103,6 +105,8 @@ FUNCTIONS = {
     "resumir_video_youtube": lambda a: internet_tools.resumir_video_youtube(a.get("url") or a.get("enlace", ""), a.get("pregunta", "")),
     "leer_noticias_rss": lambda a: internet_tools.leer_noticias_rss(a.get("url", ""), a.get("cantidad", 8)),
     "analizar_programa": lambda a: rea_tools.analizar_programa(a.get("ruta", ""), a.get("tipo", "resumen")),
+    "informe_seguridad_red": lambda a: seguridad_tools.informe_seguridad_red(),
+    "cerrar_proceso": lambda a: seguridad_tools.cerrar_proceso(a.get("pid", "")),
     "mirar_camara": lambda a: _mirar_camara(),
     "resumir_repositorio_github": lambda a: internet_tools.resumir_repositorio_github(a.get("repositorio") or a.get("url", "")),
     "crear_o_actualizar_nota": lambda a: knowledge_vault.crear_o_actualizar_nota(a["titulo"], a["contenido"], a.get("carpeta", "Proyectos"), a.get("tags", "")),
@@ -219,6 +223,7 @@ def obtener_herramientas_relevantes(prompt: str, es_local: bool) -> list | None:
         "rss": {"leer_noticias_rss"},
         "github": {"resumir_repositorio_github"},
         "camara": {"mirar_camara"},
+        "seguridad": {"informe_seguridad_red", "cerrar_proceso", "auditar_puertos_locales"},
         "ingenieria_inversa": {"analizar_programa"},
         "memoria": {"guardar_recuerdo_importante", "buscar_en_memoria_profunda", "buscar_en_boveda"},
         "nota": {"crear_o_actualizar_nota", "registrar_en_bitacora_diaria", "buscar_en_boveda"},
@@ -243,6 +248,7 @@ def obtener_herramientas_relevantes(prompt: str, es_local: bool) -> list | None:
         "youtube": ("youtube", "youtu", "video", "vídeo"),
         "rss": ("rss", "atom", "feed", "canal de noticias"),
         "github": ("github", "repositorio", "repo"),
+        "seguridad": ("seguridad", "expuesto", "expuestos", "algo raro", "intruso", "cierra el proceso", "mata el proceso", "cerrar el proceso", "pid"),
         "camara": ("cámara", "camara", "me ves", "me estás viendo", "me estas viendo", "cómo me veo", "como me veo", "mi cara", "webcam"),
         "ingenieria_inversa": ("ingeniería inversa", "ingenieria inversa", "descompila", "desarma", "por dentro", "binario", "rea"),
         "memoria": ("recuerdo", "memoria", "preferencia", "aprendiste"),
@@ -289,7 +295,10 @@ def obtener_herramientas_relevantes(prompt: str, es_local: bool) -> list | None:
     if "portapapeles" in text or "copié" in text or "copie" in text:
         ordered_names.sort(key=lambda name: 0 if "portapapeles" in name else 1)
     # Un enlace concreto manda: con un link de YouTube o GitHub su herramienta va primero.
-    for marca, herramienta in (("youtu", "resumir_video_youtube"), ("github.com", "resumir_repositorio_github")):
+    for marca, herramienta in (("youtu", "resumir_video_youtube"), ("github.com", "resumir_repositorio_github"),
+                               ("red", "informe_seguridad_red"), ("expuest", "informe_seguridad_red"),
+                               ("raro", "informe_seguridad_red"), ("proceso", "cerrar_proceso") if re.search(
+                                   r"\b(?:cierra|cerrar|mata|matar|termina)\b", text) else ("", "")):
         if marca in text and herramienta in ordered_names:
             ordered_names.sort(key=lambda name, h=herramienta: 0 if name == h else 1)
     selected_list = [schema for name in ordered_names if name in selected for schema in TOOL_SCHEMAS if schema["function"]["name"] == name]

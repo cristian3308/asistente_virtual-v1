@@ -61,6 +61,8 @@ TRATO = os.getenv(
 # Siempre atento a "Jarvis" (micrófono abierto, todo se procesa en el PC). /jarvis on|off lo cambia.
 PALABRA_ACTIVACION = os.getenv("ASSISTANT_JARVIS", "1").strip().lower() not in {"0", "false", "no"}
 SEGUIMIENTO_SEGUNDOS = float(os.getenv("ASSISTANT_SEGUIMIENTO", "5"))   # escucha sin nombre tras responder
+# Centinela: puertos expuestos, batería, disco, GPU y errores copiados (cada 15 s, casi sin coste).
+CENTINELA = os.getenv("ASSISTANT_CENTINELA", "1").strip().lower() not in {"0", "false", "no"}
 SALUDO_AL_VOLVER = os.getenv("ASSISTANT_SALUDO", "1").strip().lower() not in {"0", "false", "no"}
 SALUDO_TRAS_MINUTOS = float(os.getenv("ASSISTANT_SALUDO_MINUTOS", "20"))
 # Avatar flotante (robot-heads) al arrancar; se abre/cierra con /avatar.

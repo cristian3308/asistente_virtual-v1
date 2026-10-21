@@ -37,7 +37,26 @@ def main() -> None:
     if loaded_skills:
         console.print(f"[green]Habilidades aprobadas cargadas:[/green] {', '.join(loaded_skills)}")
     voice_enabled = False
-    sentinel = Sentinel(voice_enabled=lambda: voice_enabled)
+    def aviso_centinela(texto: str, gravedad: str) -> None:
+        """Avisos del centinela: consola y celular siempre; voz si no está hablando contigo; Telegram si es grave."""
+        from core import eventos
+        colores = {"alto": "bold red", "medio": "bold yellow"}
+        console.print(f"\n[{colores.get(gravedad, 'cyan')}]🛡️ {texto}[/{colores.get(gravedad, 'cyan')}]")
+        eventos.publicar("aviso", texto, origen="consola", ok=gravedad not in {"alto", "medio"}, gravedad=gravedad)
+        if gravedad == "alto":
+            from interfaces import notificaciones
+            notificaciones.enviar_telegram("🛡️ " + texto)
+        if gravedad in {"alto", "medio"} and not atendiendo_voz():
+            def decir() -> None:
+                try:
+                    from voice.mouth_tts import hablar
+                    hablar(texto)
+                except Exception:
+                    pass
+            threading.Thread(target=decir, name="centinela-voz", daemon=True).start()
+
+    atendiendo_voz = lambda: False   # se reemplaza al crear el despertador
+    sentinel = Sentinel(voice_enabled=lambda: voice_enabled, avisar=lambda t, g: aviso_centinela(t, g))
     from core import tareas
     from interfaces import notificaciones
     notificaciones.voz_activa = lambda: voice_enabled
@@ -135,6 +154,7 @@ def main() -> None:
             turno_voz.release()
 
     despertador = despertar.Despertador(atender_llamada, ocupado=atendiendo.is_set)
+    atendiendo_voz = atendiendo.is_set
 
     # --- Cámara: reconocerte, ver tu ánimo y avisar si hay alguien que no conoce ---
     from core import camara
@@ -171,6 +191,8 @@ def main() -> None:
         "Comandos: /estado /limpiar /indexar <ruta> /recuerdos /habilidades /cargar_habilidades /ver <pregunta> /centinela <on|off> /benchmark /modelo <codigo|razonamiento|rapido|local|turbo> /tareas /tarea <objetivo> /cancelar /pausar /reactivar /programar <cambio> /revisar /aprobar /rechazar /deshacer /olvidar /auditoria /fallos /procedimientos /reiniciar /web /jarvis <on|off> /camara <on|off|registrar|olvidar> /parar /reanudar /voz /voces /voz_probar /voz_usar /conversar /avatar /salir",
         title="🤖 Asistente Virtual Profundo", border_style="cyan",
     ))
+    if settings.CENTINELA:
+        sentinel.start()
     if settings.PALABRA_ACTIVACION:
         from voice import efectos
         efectos.precargar_frases()
@@ -387,8 +409,11 @@ def main() -> None:
                 elif action == "off":
                     sentinel.stop()
                     console.print("[yellow]Centinela detenido.[/yellow]")
+                elif action in {"informe", "reporte", "red"}:
+                    from core.sentinel import informe_exposicion
+                    console.print(Panel(informe_exposicion(), title="🛡️ Exposición en tu red", border_style="yellow"))
                 else:
-                    console.print("Uso: /centinela on|off")
+                    console.print("Uso: /centinela on|off|informe")
                 continue
             if lower.startswith("/modelo"):
                 arg = prompt.partition(" ")[2].strip()
