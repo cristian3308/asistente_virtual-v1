@@ -147,6 +147,14 @@ def recortar_silencios(muestras, sample_rate: int, margen_ms: int = SILENCIO_MAX
 _interrumpido = threading.Event()
 
 
+def _subtitulo(texto: str) -> None:
+    """El subtítulo del avatar es un extra: si falla, la voz sigue igual."""
+    try:
+        estado.subtitulo(texto)
+    except Exception:
+        pass
+
+
 def detener_habla() -> None:
     """Calla al asistente al instante (cuando le dices "Jarvis" mientras habla)."""
     _interrumpido.set()
@@ -252,7 +260,7 @@ class SentenceSpeaker:
         while True:
             futuro = self._audio.get()
             if futuro is None:
-                estado.subtitulo("")
+                _subtitulo("")
                 if pygame.mixer.get_init():
                     pygame.mixer.quit()
                 return
@@ -268,7 +276,7 @@ class SentenceSpeaker:
             try:
                 if not pygame.mixer.get_init():
                     pygame.mixer.init()
-                estado.subtitulo(getattr(futuro, "frase", ""))
+                _subtitulo(getattr(futuro, "frase", ""))
                 self._reproducir(path)
             except Exception:
                 pass

@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
+
+os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")   # sin el saludo de pygame en la consola
 import threading
 from contextlib import contextmanager
 
