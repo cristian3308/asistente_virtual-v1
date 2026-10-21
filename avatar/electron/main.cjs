@@ -2,8 +2,8 @@
 // Solo se ve el robot; se arrastra con el ratón y queda siempre encima.
 const { app, BrowserWindow, screen } = require('electron');
 
-const ANCHO = 220;
-const ALTO = 230;
+const ANCHO = 310;
+const ALTO = 360;
 const MARGEN = 12;
 
 // robot-heads muestra una pose fija si Windows tiene desactivados los efectos de

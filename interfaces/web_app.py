@@ -278,6 +278,29 @@ def crear_app(brain, clave: str | None = None):
         nuevos = eventos.desde(desde, espera=max(0.0, min(espera, 25.0)))
         return {"eventos": nuevos, "ultimo": eventos.ultimo()}
 
+    @app.get("/api/push/clave", dependencies=api)
+    def push_clave():
+        from interfaces import push
+        return {"clave": push.clave_publica()}
+
+    @app.post("/api/push/suscribir", dependencies=api)
+    def push_suscribir(suscripcion: dict):
+        from interfaces import push
+        try:
+            total = push.suscribir(suscripcion)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        _web(auditoria.registrar, "web", "notificaciones activadas", ok=True)
+        return {"ok": True, "dispositivos": total}
+
+    @app.post("/api/push/probar", dependencies=api)
+    def push_probar():
+        from interfaces import push
+        entregados = push.enviar(f"Hola, {settings.USER_NAME}. Las notificaciones funcionan.", "Jarvis")
+        if not entregados:
+            raise HTTPException(409, "No hay ningún celular suscrito todavía.")
+        return {"entregados": entregados}
+
     @app.get("/api/pantalla", dependencies=api)
     def pantalla(calidad: int = 60):
         """Foto de la pantalla del PC ahora mismo (JPEG). No se guarda en el PC."""

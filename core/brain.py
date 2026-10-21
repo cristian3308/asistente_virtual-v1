@@ -90,6 +90,21 @@ class AssistantBrain:
         re.IGNORECASE,
     )
 
+    # Lo que se ve sobre el avatar mientras corre cada herramienta.
+    _QUE_HACE = {
+        "autoprogramar_habilidad": "Aprendiendo una habilidad…", "investigar_tema": "Investigando en internet…",
+        "buscar_en_internet": "Buscando en internet…", "leer_documentacion_web": "Leyendo una página…",
+        "resumir_video_youtube": "Viendo el video…", "leer_noticias_rss": "Leyendo noticias…",
+        "resumir_repositorio_github": "Revisando GitHub…", "ver_pantalla_actual": "Mirando tu pantalla…",
+        "mirar_camara": "Mirando por la cámara…", "estado_hardware": "Revisando el PC…",
+        "listar_procesos_pesados": "Revisando procesos…", "informe_seguridad_red": "Revisando la red…",
+        "auditar_puertos_locales": "Revisando puertos…", "programar_recordatorio": "Anotando el recordatorio…",
+        "crear_tarea": "Creando la tarea…", "programar_cambio": "Preparando el cambio…",
+        "guardar_recuerdo_importante": "Guardando en memoria…", "buscar_en_memoria_profunda": "Recordando…",
+        "crear_o_actualizar_nota": "Escribiendo la nota…", "ejecutar_protocolo": "Activando el protocolo…",
+        "analizar_programa": "Analizando el programa…", "ver_botones": "Leyendo la ventana…",
+    }
+
     # Reflejos de control del PC: instantáneos, sin modelo ("sube el volumen", "pausa", "bloquea el PC").
     _REFLEJOS = (
         (re.compile(r"^(?:pon|deja|ajusta|sube|baja)\s+(?:el\s+)?volumen\s+(?:al?|en)\s+(?P<nivel>\d{1,3})\s*%?$", re.I),
@@ -442,7 +457,7 @@ class AssistantBrain:
                 estado.publicar(
                     "searching" if name in self._HERRAMIENTAS_DE_BUSQUEDA else "working",
                     motor="local" if motor.is_local else "cloud",
-                    detalle="Aprendiendo una habilidad…" if name == "autoprogramar_habilidad" else "",
+                    detalle=self._QUE_HACE.get(name, "Trabajando…"),
                 )
                 cache_key = (name, json.dumps(parsed, sort_keys=True, ensure_ascii=False))
                 if cache_key in seen_tool_results:

@@ -25,6 +25,11 @@ def notificar(texto: str, telegram: bool = True) -> None:
         threading.Thread(target=hablar_aviso, name="aviso-voz", daemon=True).start()
     if telegram:
         enviar_telegram(texto)
+    try:
+        from interfaces import push
+        push.enviar_en_segundo_plano(texto)   # al celular, aunque la app esté cerrada
+    except Exception:
+        pass
 
 
 def enviar_telegram(texto: str) -> bool:

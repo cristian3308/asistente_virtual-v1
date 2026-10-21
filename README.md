@@ -174,6 +174,11 @@ ea` y
 - **Centinela** (encendido por defecto): avisa de programas que se abren a tu red, batería baja, disco lleno o
   un error que copiaste. `/centinela informe` muestra qué está expuesto en tu red.
 
+- **HUD**: el robot muestra anillos con el uso de CPU, RAM y GPU, la herramienta que está usando y subtítulos de
+  lo que dice. Recibe el estado por una conexión en vivo (SSE) en vez de preguntar 16 veces por segundo.
+- **Notificaciones en el celular** (aunque la app esté cerrada): en la app, pestaña PC → «Activar notificaciones».
+  Necesita abrir la app por HTTPS (`tailscale serve`). Llegan tareas, recordatorios y avisos de seguridad.
+
 ## Seguridad
 - Las habilidades generadas se validan (lista blanca de módulos) y se ejecutan en un
   proceso aparte sin variables de entorno; instalarlas requiere tu confirmación.

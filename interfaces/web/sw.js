@@ -1,5 +1,5 @@
 // Guarda solo la "carcasa" de la app para que abra rápido; la API nunca se guarda en caché.
-const CACHE = "asistente-v2";
+const CACHE = "asistente-v3";
 const CARCASA = ["/", "/static/app.js", "/static/styles.css", "/static/icon.svg", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
@@ -19,4 +19,23 @@ self.addEventListener("fetch", (e) => {
     if (resp.ok) { const copia = resp.clone(); caches.open(CACHE).then((c) => c.put(e.request, copia)); }
     return resp;
   }).catch(() => caches.match(e.request)));
+});
+
+// Notificaciones push: llegan aunque la app esté cerrada.
+self.addEventListener("push", (e) => {
+  let datos = { titulo: "Jarvis", cuerpo: "", url: "/" };
+  try { datos = { ...datos, ...e.data.json() }; } catch (_) { if (e.data) datos.cuerpo = e.data.text(); }
+  e.waitUntil(self.registration.showNotification(datos.titulo, {
+    body: datos.cuerpo, icon: "/static/icon-192.png", badge: "/static/icon-192.png", data: { url: datos.url }, tag: "jarvis",
+    renotify: true,
+  }));
+});
+
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const destino = (e.notification.data && e.notification.data.url) || "/";
+  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((ventanas) => {
+    for (const v of ventanas) if ("focus" in v) return v.focus();
+    return self.clients.openWindow(destino);
+  }));
 });

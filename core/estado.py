@@ -46,6 +46,16 @@ def publicar(estado: str, motor: str | None = None, detalle: str = "", duracion:
         _estado.update(estado=estado, detalle=detalle, cambio=now)
 
 
+_subtitulo = {"texto": "", "id": 0}
+
+
+def subtitulo(texto: str) -> None:
+    """La frase que suena ahora, para mostrarla bajo el avatar ("" la borra)."""
+    with _lock:
+        _subtitulo["texto"] = (texto or "").strip()[:220]
+        _subtitulo["id"] += 1
+
+
 def voz(activa: bool) -> None:
     """La reproducción de audio marca 'speaking' aunque el cerebro ya haya terminado el turno."""
     global _voz_activa
@@ -66,7 +76,8 @@ def actual() -> dict:
             estado = "speaking"
         elif estado == "idle" and now - _estado["cambio"] > DORMIR_TRAS:
             estado = "sleeping"
-        resultado = {"estado": estado, "motor": _estado["motor"], "detalle": detalle, "boca_id": _boca["id"]}
+        resultado = {"estado": estado, "motor": _estado["motor"], "detalle": detalle, "boca_id": _boca["id"],
+                     "subtitulo": _subtitulo["texto"] if _voz_activa or estado == "speaking" else ""}
         if _voz_activa:
             resultado["boca"] = dict(_boca)
         return resultado

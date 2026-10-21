@@ -235,7 +235,9 @@ class SentenceSpeaker:
     def _encolar(self, frase: str) -> None:
         if limpiar_texto(frase) and not _interrumpido.is_set():
             self._dichas += 1
-            self._audio.put(self._pool.submit(self._sintetizar, frase))
+            futuro = self._pool.submit(self._sintetizar, frase)
+            futuro.frase = limpiar_texto(frase)   # para el subtítulo del avatar
+            self._audio.put(futuro)
 
     def _play_worker(self) -> None:
         import pygame
@@ -250,6 +252,7 @@ class SentenceSpeaker:
         while True:
             futuro = self._audio.get()
             if futuro is None:
+                estado.subtitulo("")
                 if pygame.mixer.get_init():
                     pygame.mixer.quit()
                 return
@@ -265,6 +268,7 @@ class SentenceSpeaker:
             try:
                 if not pygame.mixer.get_init():
                     pygame.mixer.init()
+                estado.subtitulo(getattr(futuro, "frase", ""))
                 self._reproducir(path)
             except Exception:
                 pass

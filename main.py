@@ -46,6 +46,9 @@ def main() -> None:
         if gravedad == "alto":
             from interfaces import notificaciones
             notificaciones.enviar_telegram("🛡️ " + texto)
+        if gravedad in {"alto", "medio"}:
+            from interfaces import push
+            push.enviar_en_segundo_plano("🛡️ " + texto, "Jarvis · seguridad")
         if gravedad in {"alto", "medio"} and not atendiendo_voz():
             def decir() -> None:
                 try:
@@ -176,8 +179,9 @@ def main() -> None:
             texto = f"⚠️ Hay alguien frente a tu PC que no reconozco ({datos.get('desconocidos', 1)} persona(s)) y tú no estás."
             eventos.publicar("aviso", texto, origen="consola", ok=False)
             console.print(f"[bold red]{texto}[/bold red]")
-            from interfaces import notificaciones
+            from interfaces import notificaciones, push
             notificaciones.enviar_telegram(texto)
+            push.enviar_en_segundo_plano(texto, "Jarvis · seguridad")
 
     camara_jarvis = camara.obtener(al_cambiar_camara)
     from memory import hindsight_memoria

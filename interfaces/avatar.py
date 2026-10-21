@@ -25,8 +25,48 @@ _server: ThreadingHTTPServer | None = None
 _window: subprocess.Popen | None = None
 
 
+REVISAR_CADA = 0.04       # s: el servidor mira el estado ~25 veces/s, pero solo envía si cambió
+TELEMETRIA_CADA = 2.0
+
+
 class _Handler(SimpleHTTPRequestHandler):
+    def _eventos(self) -> None:
+        """Server-Sent Events: una conexión abierta por la que se empuja el estado al cambiar.
+
+        Antes la página preguntaba /estado 16 veces por segundo aunque no cambiara nada.
+        """
+        import time
+        from core import telemetria
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        anterior, ultima_telemetria, ultimo_envio = None, 0.0, time.monotonic()
+        try:
+            while True:
+                ahora = time.monotonic()
+                datos = estado.actual()
+                firma = json.dumps(datos, ensure_ascii=False, sort_keys=True)
+                toca_telemetria = ahora - ultima_telemetria >= TELEMETRIA_CADA
+                if firma != anterior or toca_telemetria:
+                    if toca_telemetria:
+                        datos["telemetria"] = telemetria.actual()
+                        ultima_telemetria = ahora
+                    self.wfile.write(f"data: {json.dumps(datos, ensure_ascii=False)}\n\n".encode("utf-8"))
+                    self.wfile.flush()
+                    anterior, ultimo_envio = firma, ahora
+                elif ahora - ultimo_envio > 15:
+                    self.wfile.write(b": sigo aqui\n\n")   # mantiene viva la conexión
+                    self.wfile.flush()
+                    ultimo_envio = ahora
+                time.sleep(REVISAR_CADA)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+            return   # el avatar se cerró
+
     def do_GET(self) -> None:  # noqa: N802 (nombre impuesto por http.server)
+        if self.path.split("?", 1)[0] == "/eventos":
+            self._eventos()
+            return
         if self.path.split("?", 1)[0] == "/estado":
             body = json.dumps(estado.actual(), ensure_ascii=False).encode("utf-8")
             self.send_response(200)

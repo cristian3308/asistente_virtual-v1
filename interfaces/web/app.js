@@ -477,9 +477,46 @@ function programarPantalla() {
   if ($("#pantalla-auto").checked && vista === "pc" && !document.hidden) temporizadorPantalla = setInterval(verPantalla, 5000);
 }
 
+// ---------- notificaciones push ----------
+function base64aBytes(texto) {
+  const relleno = "=".repeat((4 - (texto.length % 4)) % 4);
+  const crudo = atob((texto + relleno).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(crudo, (c) => c.charCodeAt(0));
+}
+
+async function estadoPush() {
+  const estado = $("#push-estado");
+  const boton = $("#btn-push");
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !window.isSecureContext) {
+    estado.textContent = "Para recibir avisos, abre la app por HTTPS (la dirección …ts.net de tailscale serve) e instálala.";
+    boton.hidden = true;
+    return;
+  }
+  const registro = await navigator.serviceWorker.ready;
+  const suscripcion = await registro.pushManager.getSubscription();
+  const activas = suscripcion && Notification.permission === "granted";
+  boton.hidden = !!activas;
+  $("#btn-push-probar").hidden = !activas;
+  estado.textContent = activas ? "✅ Este celular recibe los avisos de Jarvis (tareas, recordatorios y seguridad)."
+    : Notification.permission === "denied" ? "Bloqueaste las notificaciones: actívalas en los ajustes del navegador para este sitio."
+    : "Recibe los avisos de Jarvis aunque la app esté cerrada.";
+}
+
+async function activarPush() {
+  try {
+    if (await Notification.requestPermission() !== "granted") { aviso("Sin permiso para notificaciones.", true); return estadoPush(); }
+    const { clave } = await apiJson("/api/push/clave");
+    const registro = await navigator.serviceWorker.ready;
+    const suscripcion = await registro.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64aBytes(clave) });
+    await post("/api/push/suscribir", suscripcion.toJSON());
+    aviso("Listo: Jarvis te avisará en este celular.");
+  } catch (err) { aviso("No pude activar las notificaciones: " + err.message, true); }
+  estadoPush();
+}
+
 // ---------- navegación ----------
 const CARGAS = { tareas: cargarTareas, cambios: cargarCambios, memoria: cargarMemoria, actividad: cargarActividad,
-                 pc: () => { bucleEnVivo(); programarPantalla(); } };
+                 pc: () => { bucleEnVivo(); programarPantalla(); estadoPush().catch(() => {}); } };
 
 function cambiarVista(nombre) {
   vista = nombre;
@@ -554,6 +591,10 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#cambios-todos").addEventListener("change", cargarCambios);
   $("#btn-actividad").addEventListener("click", cargarActividad);
   document.querySelectorAll(".tab").forEach((b) => b.addEventListener("click", () => cambiarVista(b.dataset.vista)));
+  $("#btn-push").addEventListener("click", activarPush);
+  $("#btn-push-probar").addEventListener("click", async () => {
+    try { await post("/api/push/probar"); aviso("Enviada: debería llegarte en unos segundos."); } catch (err) { aviso(err.message, true); }
+  });
   $("#btn-pantalla").addEventListener("click", verPantalla);
   $("#pantalla-auto").addEventListener("change", () => { programarPantalla(); if ($("#pantalla-auto").checked) verPantalla(); });
   $("#pantalla-img").addEventListener("click", (e) => e.target.classList.toggle("grande"));
