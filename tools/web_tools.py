@@ -19,22 +19,9 @@ def buscar_en_internet(consulta: str, max_resultados: int = 5) -> str:
 
 
 def leer_documentacion_web(url: str) -> str:
-    try:
-        import httpx
-        from bs4 import BeautifulSoup
-        parsed = urlparse(url)
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname or not settings.host_is_public(parsed.hostname):
-            return "URL bloqueada: solo se permiten destinos HTTP/HTTPS públicos."
-        response = httpx.get(url, follow_redirects=False, timeout=20, headers={"User-Agent": settings.USER_AGENT})
-        if response.is_redirect:
-            return "URL bloqueada: no se siguen redirecciones automáticamente."
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, "html.parser")
-        for tag in soup(["script", "style", "nav", "footer", "noscript"]):
-            tag.decompose()
-        return " ".join(soup.get_text(" ", strip=True).split())[:6000]
-    except Exception as exc:
-        return f"No se pudo leer la documentación: {type(exc).__name__}: {exc}"
+    """Texto principal de una página; sigue redirecciones comprobando que cada destino sea público."""
+    from tools.internet_tools import leer_pagina
+    return leer_pagina(url)
 
 
 def investigar_tema(tema: str, max_fuentes: int = 3) -> str:

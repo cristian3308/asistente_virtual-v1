@@ -9,7 +9,7 @@ import os
 import re
 import time
 
-from tools import contrasenas, dev_sec_tools, memory_tools, system_tools, vision_tools, web_tools, knowledge_vault, clipboard_tasks, browser_tools
+from tools import contrasenas, dev_sec_tools, internet_tools, rea_tools, memory_tools, system_tools, vision_tools, web_tools, knowledge_vault, clipboard_tasks, browser_tools
 
 
 def _tool(name: str, description: str, properties: dict | None = None, required: list[str] | None = None) -> dict:
@@ -36,7 +36,11 @@ TOOL_SCHEMAS = [
     _tool("ver_pantalla_actual", "Captura la pantalla y extrae texto mediante OCR local.", {"pregunta": {"type": "string"}}),
     _tool("buscar_en_internet", "Investiga documentación y resultados web actuales.", {"consulta": {"type": "string"}, "max_resultados": {"type": "integer"}}, ["consulta"]),
     _tool("investigar_tema", "Investiga un tema en internet (busca, lee varias páginas) y devuelve un resumen con fuentes. Úsala para 'investiga', 'averigua', 'resúmeme' o noticias.", {"tema": {"type": "string"}}, ["tema"]),
-    _tool("leer_documentacion_web", "Lee y limpia una página de documentación.", {"url": {"type": "string"}}, ["url"]),
+    _tool("leer_documentacion_web", "Lee una página web y devuelve solo su texto principal (sin menús ni anuncios).", {"url": {"type": "string"}}, ["url"]),
+    _tool("resumir_video_youtube", "Resume un video de YouTube a partir de sus subtítulos (qué dice, puntos clave). Úsala con enlaces youtube.com o youtu.be.", {"url": {"type": "string"}, "pregunta": {"type": "string"}}, ["url"]),
+    _tool("leer_noticias_rss", "Muestra las últimas noticias de un canal RSS o Atom.", {"url": {"type": "string"}, "cantidad": {"type": "integer"}}, ["url"]),
+    _tool("analizar_programa", "Ingeniería inversa estática con REA: analiza un programa, app o paquete SIN ejecutarlo (tipo: resumen, javascript o electron). Pide confirmación.", {"ruta": {"type": "string"}, "tipo": {"type": "string", "enum": ["resumen", "javascript", "electron"]}}, ["ruta"]),
+    _tool("resumir_repositorio_github", "Explica qué es un repositorio público de GitHub (descripción, estrellas y README).", {"repositorio": {"type": "string"}}, ["repositorio"]),
     _tool("crear_o_actualizar_nota", "Guarda una nota Markdown en la bóveda.", {"titulo": {"type": "string"}, "contenido": {"type": "string"}, "carpeta": {"type": "string"}, "tags": {"type": "string"}}, ["titulo", "contenido"]),
     _tool("buscar_en_boveda", "Busca notas Markdown locales.", {"consulta": {"type": "string"}}, ["consulta"]),
     _tool("registrar_en_bitacora_diaria", "Añade una entrada al diario Markdown.", {"nota": {"type": "string"}}, ["nota"]),
@@ -76,6 +80,10 @@ FUNCTIONS = {
     "buscar_en_internet": lambda a: web_tools.buscar_en_internet(a["consulta"], a.get("max_resultados", 5)),
     "investigar_tema": lambda a: web_tools.investigar_tema(a.get("tema") or a.get("consulta", "")),
     "leer_documentacion_web": lambda a: web_tools.leer_documentacion_web(a["url"]),
+    "resumir_video_youtube": lambda a: internet_tools.resumir_video_youtube(a.get("url") or a.get("enlace", ""), a.get("pregunta", "")),
+    "leer_noticias_rss": lambda a: internet_tools.leer_noticias_rss(a.get("url", ""), a.get("cantidad", 8)),
+    "analizar_programa": lambda a: rea_tools.analizar_programa(a.get("ruta", ""), a.get("tipo", "resumen")),
+    "resumir_repositorio_github": lambda a: internet_tools.resumir_repositorio_github(a.get("repositorio") or a.get("url", "")),
     "crear_o_actualizar_nota": lambda a: knowledge_vault.crear_o_actualizar_nota(a["titulo"], a["contenido"], a.get("carpeta", "Proyectos"), a.get("tags", "")),
     "buscar_en_boveda": lambda a: knowledge_vault.buscar_en_boveda(a["consulta"]),
     "registrar_en_bitacora_diaria": lambda a: knowledge_vault.registrar_en_bitacora_diaria(a["nota"]),
@@ -186,6 +194,10 @@ def obtener_herramientas_relevantes(prompt: str, es_local: bool) -> list | None:
         "archivo": {"explorar_directorio", "leer_codigo_fuente", "estado_git", "indexar_proyecto_local"},
         "pantalla": {"ver_pantalla_actual", "ventana_activa"},
         "web": {"investigar_tema", "buscar_en_internet", "leer_documentacion_web"},
+        "youtube": {"resumir_video_youtube"},
+        "rss": {"leer_noticias_rss"},
+        "github": {"resumir_repositorio_github"},
+        "ingenieria_inversa": {"analizar_programa"},
         "memoria": {"guardar_recuerdo_importante", "buscar_en_memoria_profunda", "buscar_en_boveda"},
         "nota": {"crear_o_actualizar_nota", "registrar_en_bitacora_diaria", "buscar_en_boveda"},
         "program": {"autoprogramar_habilidad"},
@@ -206,6 +218,10 @@ def obtener_herramientas_relevantes(prompt: str, es_local: bool) -> list | None:
         "pantalla": ("pantalla", "monitor", "ver", "captura", "ocr"),
         "web": ("internet", "web", "documentación", "documentacion", "url", "api", "investiga", "investigar",
                 "averigua", "resumen", "resume", "resúmeme", "resumeme", "noticia", "noticias"),
+        "youtube": ("youtube", "youtu", "video", "vídeo"),
+        "rss": ("rss", "atom", "feed", "canal de noticias"),
+        "github": ("github", "repositorio", "repo"),
+        "ingenieria_inversa": ("ingeniería inversa", "ingenieria inversa", "descompila", "desarma", "por dentro", "binario", "rea"),
         "memoria": ("recuerdo", "memoria", "preferencia", "aprendiste"),
         "nota": ("nota", "bóveda", "boveda", "diario", "obsidian"),
         "program": ("no sabes", "forja", "autoprograma", "programa una herramienta", "habilidad"),
@@ -249,6 +265,10 @@ def obtener_herramientas_relevantes(prompt: str, es_local: bool) -> list | None:
     ordered_names = list(dict.fromkeys(priority))
     if "portapapeles" in text or "copié" in text or "copie" in text:
         ordered_names.sort(key=lambda name: 0 if "portapapeles" in name else 1)
+    # Un enlace concreto manda: con un link de YouTube o GitHub su herramienta va primero.
+    for marca, herramienta in (("youtu", "resumir_video_youtube"), ("github.com", "resumir_repositorio_github")):
+        if marca in text and herramienta in ordered_names:
+            ordered_names.sort(key=lambda name, h=herramienta: 0 if name == h else 1)
     selected_list = [schema for name in ordered_names if name in selected for schema in TOOL_SCHEMAS if schema["function"]["name"] == name]
     # Las habilidades aprendidas que encajan con la petición van primero: son
     # más específicas que las integradas.

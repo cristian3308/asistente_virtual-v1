@@ -59,6 +59,24 @@
         </div>
       </section>
 
+      <!-- Lo que pasa en el PC, en vivo -->
+      <section id="vista-pc" class="view" aria-label="En vivo en el PC">
+        <div class="card stack">
+          <div class="list-head flush">
+            <h2>Pantalla del PC</h2>
+            <label class="switch"><input id="pantalla-auto" type="checkbox"> <span>Actualizar cada 5 s</span></label>
+          </div>
+          <button id="btn-pantalla" type="button" class="btn btn-primary">📸 Ver pantalla ahora</button>
+          <img id="pantalla-img" class="pantalla" alt="Captura de la pantalla del PC" hidden>
+          <p id="pantalla-hora" class="item-meta"></p>
+        </div>
+        <div class="list-head">
+          <h2><span class="dot live" aria-hidden="true"></span> En vivo</h2>
+          <button id="btn-vivo-limpiar" type="button" class="link">Limpiar</button>
+        </div>
+        <div id="lista-vivo" class="list compact" aria-live="polite"></div>
+      </section>
+
       <!-- Tareas -->
       <section id="vista-tareas" class="view" aria-label="Tareas">
         <form id="tarea-form" class="card stack">
@@ -99,6 +117,7 @@
 
     <nav class="tabs" aria-label="Secciones">
       <button class="tab active" data-vista="chat" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v12H7l-3 3z"/></svg><span>Chat</span></button>
+      <button class="tab" data-vista="pc" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h18v12H3zm2 2v8h14V6zM8 19h8v2H8z"/></svg><span>PC</span></button>
       <button class="tab" data-vista="tareas" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11v2H9zm0 5h11v2H9zm0 5h11v2H9zM4 5h3v3H4zm0 5h3v3H4zm0 5h3v3H4z"/></svg><span>Tareas</span><b id="badge-tareas" class="badge" hidden></b></button>
       <button class="tab" data-vista="cambios" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 17-5-5 5-5 1.4 1.4L5.8 12l3.6 3.6zm8 0-1.4-1.4 3.6-3.6-3.6-3.6L16 7l5 5z"/></svg><span>Cambios</span><b id="badge-cambios" class="badge" hidden></b></button>
       <button class="tab" data-vista="memoria" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a7 7 0 0 0-4 12.7V19h8v-3.3A7 7 0 0 0 12 3Zm-3 18h6v-1H9z"/></svg><span>Memoria</span></button>

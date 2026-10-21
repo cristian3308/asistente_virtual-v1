@@ -85,7 +85,7 @@ def crear_app(brain, clave: str | None = None):
     async def cabeceras(request: Request, call_next):
         respuesta = await call_next(request)
         respuesta.headers.update({
-            "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; media-src 'self' blob:; "
+            "Content-Security-Policy": "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; "
                                        "frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
             "X-Content-Type-Options": "nosniff",
             "Referrer-Policy": "no-referrer",
@@ -99,7 +99,7 @@ def crear_app(brain, clave: str | None = None):
         dado = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
         if not hmac.compare_digest(dado.encode(), clave.encode()):
             cerradura.fallo()
-            auditoria.registrar("web", "acceso denegado", request.client.host if request.client else "?", ok=False)
+            _web(auditoria.registrar, "web", "acceso denegado", request.client.host if request.client else "?", ok=False)
             raise HTTPException(401, "Token incorrecto.")
 
     api = [Depends(autorizado)]
@@ -147,7 +147,7 @@ def crear_app(brain, clave: str | None = None):
     # ---------- API ----------
     @app.post("/api/login", dependencies=api)
     def login():
-        auditoria.registrar("web", "inicio de sesión", ok=True)
+        _web(auditoria.registrar, "web", "inicio de sesión", ok=True)
         return {"ok": True, "usuario": settings.USER_NAME}
 
     @app.get("/api/estado", dependencies=api)
@@ -268,6 +268,31 @@ def crear_app(brain, clave: str | None = None):
     @app.get("/api/actividad", dependencies=api)
     def actividad(limite: int = 60):
         return list(reversed(auditoria.recientes(max(1, min(limite, 300)))))
+
+    @app.get("/api/en-vivo", dependencies=api)
+    def en_vivo(desde: int = -1, espera: float = 20.0):
+        """Lo que pasa en el PC. desde=-1: los últimos 60 eventos. Si no hay nada nuevo espera hasta 20 s."""
+        from core import eventos
+        if desde < 0:
+            return {"eventos": eventos.desde(0)[-60:], "ultimo": eventos.ultimo()}
+        nuevos = eventos.desde(desde, espera=max(0.0, min(espera, 25.0)))
+        return {"eventos": nuevos, "ultimo": eventos.ultimo()}
+
+    @app.get("/api/pantalla", dependencies=api)
+    def pantalla(calidad: int = 60):
+        """Foto de la pantalla del PC ahora mismo (JPEG). No se guarda en el PC."""
+        import io
+        import mss
+        from fastapi.responses import Response
+        from PIL import Image
+        with mss.MSS() as capturador:
+            imagen = capturador.grab(capturador.monitors[1])
+            foto = Image.frombytes("RGB", imagen.size, imagen.rgb)
+        foto.thumbnail((1600, 1600))
+        salida = io.BytesIO()
+        foto.save(salida, "JPEG", quality=max(30, min(calidad, 85)))
+        _web(auditoria.registrar, "web", "captura de pantalla", ok=True)
+        return Response(salida.getvalue(), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
     return app
 

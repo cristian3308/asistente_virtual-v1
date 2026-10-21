@@ -417,13 +417,75 @@ async function cargarActividad() {
   } catch (err) { lista.replaceChildren(el("p", { class: "empty" }, err.message)); }
 }
 
+// ---------- en vivo: lo que pasa en el PC ----------
+const ORIGENES = { consola: "💻 PC", telegram: "✈️ Telegram", web: "📱 Celular", tarea: "⚙️ Tarea" };
+let ultimoEvento = -1;
+let vivoActivo = false;
+
+function pintarEvento(e) {
+  const fallo = e.ok === false;
+  const titulo = {
+    mensaje: "🗣️ " + e.texto,
+    respuesta: "🤖 " + e.texto,
+    herramienta: (fallo ? "✗ " : "🔧 ") + e.texto,
+  }[e.tipo] || ((fallo ? "✗ " : "• ") + e.texto);
+  const meta = `${fecha(e.hora)} · ${ORIGENES[e.origen] || e.origen}${e.motor ? " · " + e.motor : ""}`;
+  return el("article", { class: `item evento ${e.tipo}${fallo ? " fallo" : ""}` },
+    el("div", { class: "item-meta" }, meta), el("div", { class: "item-title" }, titulo));
+}
+
+async function bucleEnVivo() {
+  if (vivoActivo) return;
+  vivoActivo = true;
+  const lista = $("#lista-vivo");
+  while (vivoActivo && vista === "pc" && token && !document.hidden) {
+    try {
+      const r = await apiJson(`/api/en-vivo?desde=${ultimoEvento}&espera=20`);
+      if (ultimoEvento < 0) lista.replaceChildren();
+      for (const e of r.eventos) lista.prepend(pintarEvento(e));   // lo más nuevo arriba
+      while (lista.children.length > 150) lista.lastChild.remove();
+      if (!lista.children.length) lista.append(el("p", { class: "empty" }, "Aún no pasa nada. Háblale al asistente en el PC y lo verás aquí al instante."));
+      else lista.querySelector(".empty")?.remove();
+      ultimoEvento = r.ultimo;
+    } catch (err) {
+      await new Promise((ok) => setTimeout(ok, 3000));   // sin conexión: reintenta en un momento
+    }
+  }
+  vivoActivo = false;
+}
+
+let urlPantalla = null;
+let temporizadorPantalla = null;
+async function verPantalla() {
+  const boton = $("#btn-pantalla");
+  boton.disabled = true;
+  try {
+    const resp = await api("/api/pantalla");
+    const nueva = URL.createObjectURL(await resp.blob());
+    const img = $("#pantalla-img");
+    img.src = nueva;
+    img.hidden = false;
+    if (urlPantalla) URL.revokeObjectURL(urlPantalla);
+    urlPantalla = nueva;
+    $("#pantalla-hora").textContent = "Captura de las " + new Date().toLocaleTimeString("es-CO") + " · toca la imagen para verla grande";
+  } catch (err) { aviso(err.message, true); }
+  boton.disabled = false;
+}
+
+function programarPantalla() {
+  clearInterval(temporizadorPantalla);
+  if ($("#pantalla-auto").checked && vista === "pc" && !document.hidden) temporizadorPantalla = setInterval(verPantalla, 5000);
+}
+
 // ---------- navegación ----------
-const CARGAS = { tareas: cargarTareas, cambios: cargarCambios, memoria: cargarMemoria, actividad: cargarActividad };
+const CARGAS = { tareas: cargarTareas, cambios: cargarCambios, memoria: cargarMemoria, actividad: cargarActividad,
+                 pc: () => { bucleEnVivo(); programarPantalla(); } };
 
 function cambiarVista(nombre) {
   vista = nombre;
   document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b.dataset.vista === nombre));
   document.querySelectorAll(".view").forEach((v) => v.classList.toggle("active", v.id === "vista-" + nombre));
+  if (nombre !== "pc") clearInterval(temporizadorPantalla);
   if (CARGAS[nombre]) CARGAS[nombre]();
 }
 
@@ -492,7 +554,14 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#cambios-todos").addEventListener("change", cargarCambios);
   $("#btn-actividad").addEventListener("click", cargarActividad);
   document.querySelectorAll(".tab").forEach((b) => b.addEventListener("click", () => cambiarVista(b.dataset.vista)));
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) { refrescarEstado(); refrescarContadores(); } });
+  $("#btn-pantalla").addEventListener("click", verPantalla);
+  $("#pantalla-auto").addEventListener("change", () => { programarPantalla(); if ($("#pantalla-auto").checked) verPantalla(); });
+  $("#pantalla-img").addEventListener("click", (e) => e.target.classList.toggle("grande"));
+  $("#btn-vivo-limpiar").addEventListener("click", () => $("#lista-vivo").replaceChildren());
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) { refrescarEstado(); refrescarContadores(); if (vista === "pc") CARGAS.pc(); }
+    else clearInterval(temporizadorPantalla);   // con el celular bloqueado no se gasta batería ni datos
+  });
   setInterval(refrescarEstado, 3000);
   setInterval(refrescarContadores, 30000);
 

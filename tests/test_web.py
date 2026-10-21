@@ -114,6 +114,37 @@ class WebTests(unittest.TestCase):
                 self.assertIn("ya está en uso", web_app.iniciar(None))
         self.assertIsNone(web_app._servidor)
 
+    def test_en_vivo_muestra_lo_que_pasa_en_el_pc(self) -> None:
+        from core import eventos
+        inicio = self.cliente.get("/api/en-vivo?desde=-1", headers=self.auth).json()["ultimo"]
+        self.cliente.post("/api/chat", headers=self.auth, json={"texto": "hola"})
+        eventos.publicar("herramienta", "abrir_aplicacion → Abrí Chrome.", origen="consola", ok=True)
+        nuevos = self.cliente.get(f"/api/en-vivo?desde={inicio}&espera=0", headers=self.auth).json()["eventos"]
+        self.assertIn(("herramienta", "consola"), [(e["tipo"], e["origen"]) for e in nuevos])
+        # Long polling: si no hay nada nuevo espera y devuelve vacío sin error.
+        vacio = self.cliente.get(f"/api/en-vivo?desde={eventos.ultimo()}&espera=0.2", headers=self.auth).json()
+        self.assertEqual(vacio["eventos"], [])
+        self.assertEqual(self.cliente.get("/api/en-vivo").status_code, 401)
+
+    def test_pantalla_devuelve_una_foto_jpeg(self) -> None:
+        import mss
+        from types import SimpleNamespace
+        falsa = SimpleNamespace(size=(4, 2), rgb=bytes(4 * 2 * 3))
+        capturador = SimpleNamespace(monitors=[None, {}], grab=lambda _m: falsa)
+
+        class MSSFalso:
+            def __enter__(self):
+                return capturador
+
+            def __exit__(self, *_):
+                return False
+
+        with patch.object(mss, "MSS", MSSFalso):
+            resp = self.cliente.get("/api/pantalla", headers=self.auth)
+        self.assertEqual(resp.headers["content-type"], "image/jpeg")
+        self.assertTrue(resp.content.startswith(b"\xff\xd8"))
+        self.assertEqual(self.cliente.get("/api/pantalla").status_code, 401)
+
     def test_actividad_mas_reciente_primero(self) -> None:
         auditoria.registrar("prueba", "primera")
         auditoria.registrar("prueba", "segunda")

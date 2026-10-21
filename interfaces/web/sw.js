@@ -1,5 +1,5 @@
 // Guarda solo la "carcasa" de la app para que abra rápido; la API nunca se guarda en caché.
-const CACHE = "asistente-v1";
+const CACHE = "asistente-v2";
 const CARCASA = ["/", "/static/app.js", "/static/styles.css", "/static/icon.svg", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {

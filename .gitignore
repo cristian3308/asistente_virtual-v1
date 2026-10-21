@@ -1,4 +1,5 @@
 .venv/
+.venv-hindsight/
 __pycache__/
 *.py[cod]
 .env
@@ -8,3 +9,6 @@ data/
 # Bóveda personal de Obsidian: notas privadas, no se versionan.
 cerebro_asistente/
 avatar/node_modules/
+
+# Herramientas externas instaladas localmente (REA)
+externos/

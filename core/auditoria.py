@@ -64,6 +64,11 @@ def registrar(tipo: str, nombre: str, detalle=None, resultado=None, ok: bool = T
                 archivo.write(json.dumps(entrada, ensure_ascii=False) + "\n")
     except OSError:
         pass
+    # La misma acción (ya sin secretos) se ve en vivo en la app del celular.
+    from core import eventos
+    eventos.publicar("herramienta" if tipo == "herramienta" else "aviso",
+                     f"{nombre}" + (f" → {entrada['resultado']}" if entrada["resultado"] else ""),
+                     origen=entrada["origen"], ok=ok, accion=tipo)
 
 
 def recientes(limite: int = 20) -> list[dict]:

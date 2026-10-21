@@ -112,9 +112,16 @@ class AssistantBrain:
             return self._turno
 
     def ask(self, prompt: str, on_token=None) -> tuple[str, str]:
+        from core import eventos
         with self._candado():
             try:
-                return self._ask(prompt, on_token)
+                eventos.publicar("mensaje", prompt)   # visible en vivo desde la app del celular
+                respuesta, motor = self._ask(prompt, on_token)
+                eventos.publicar("respuesta", respuesta, motor=motor)
+                return respuesta, motor
+            except Exception as exc:
+                eventos.publicar("aviso", f"Error al responder: {type(exc).__name__}: {exc}")
+                raise
             finally:
                 if "_primera_respuesta" in self.__dict__:
                     self._primera_respuesta.set()

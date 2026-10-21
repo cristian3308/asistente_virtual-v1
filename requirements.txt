@@ -22,3 +22,6 @@ playwright
 pywebview==5.3.2
 fastapi==0.115.6
 uvicorn
+yt-dlp==2026.8.19
+feedparser==6.0.14
+trafilatura==2.3.1
