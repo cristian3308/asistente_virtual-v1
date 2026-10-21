@@ -25,4 +25,3 @@ uvicorn
 yt-dlp==2026.8.19
 feedparser==6.0.14
 trafilatura==2.3.1
-openwakeword==0.6.0

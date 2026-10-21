@@ -12,6 +12,25 @@ import time
 from tools import contrasenas, dev_sec_tools, internet_tools, rea_tools, memory_tools, system_tools, vision_tools, web_tools, knowledge_vault, clipboard_tasks, browser_tools
 
 
+def _mirar_camara() -> str:
+    from core import camara
+    from config import settings
+    cam = camara.obtener()
+    if not cam.encendida():
+        return "La cámara está apagada. Cristhian puede encenderla con /camara on."
+    try:
+        datos = cam.mirar()
+    except Exception as exc:
+        return f"No pude mirar por la cámara: {exc}"
+    if not datos.get("caras"):
+        return "No veo a nadie frente al PC."
+    if camara.ROSTRO.exists() and not datos.get("tu"):
+        return f"Veo {datos['caras']} persona(s), pero no reconozco a {settings.USER_NAME}."
+    animo = cam.animo() or datos.get("emocion")
+    quien = settings.USER_NAME if datos.get("tu") else "a alguien (aún no está registrada la cara de Cristhian)"
+    return f"Veo a {quien} frente al PC" + (f"; su expresión parece {animo} (estimación)" if animo else "") + "."
+
+
 def _tool(name: str, description: str, properties: dict | None = None, required: list[str] | None = None) -> dict:
     return {"type": "function", "function": {
         "name": name, "description": description,
@@ -40,6 +59,7 @@ TOOL_SCHEMAS = [
     _tool("resumir_video_youtube", "Resume un video de YouTube a partir de sus subtítulos (qué dice, puntos clave). Úsala con enlaces youtube.com o youtu.be.", {"url": {"type": "string"}, "pregunta": {"type": "string"}}, ["url"]),
     _tool("leer_noticias_rss", "Muestra las últimas noticias de un canal RSS o Atom.", {"url": {"type": "string"}, "cantidad": {"type": "integer"}}, ["url"]),
     _tool("analizar_programa", "Ingeniería inversa estática con REA: analiza un programa, app o paquete SIN ejecutarlo (tipo: resumen, javascript o electron). Pide confirmación.", {"ruta": {"type": "string"}, "tipo": {"type": "string", "enum": ["resumen", "javascript", "electron"]}}, ["ruta"]),
+    _tool("mirar_camara", "Mira por la cámara (si está encendida): si Cristhian está frente al PC, si lo reconoce y su expresión aproximada. Úsala para '¿me ves?', '¿cómo me veo?'.", {}),
     _tool("resumir_repositorio_github", "Explica qué es un repositorio público de GitHub (descripción, estrellas y README).", {"repositorio": {"type": "string"}}, ["repositorio"]),
     _tool("crear_o_actualizar_nota", "Guarda una nota Markdown en la bóveda.", {"titulo": {"type": "string"}, "contenido": {"type": "string"}, "carpeta": {"type": "string"}, "tags": {"type": "string"}}, ["titulo", "contenido"]),
     _tool("buscar_en_boveda", "Busca notas Markdown locales.", {"consulta": {"type": "string"}}, ["consulta"]),
@@ -83,6 +103,7 @@ FUNCTIONS = {
     "resumir_video_youtube": lambda a: internet_tools.resumir_video_youtube(a.get("url") or a.get("enlace", ""), a.get("pregunta", "")),
     "leer_noticias_rss": lambda a: internet_tools.leer_noticias_rss(a.get("url", ""), a.get("cantidad", 8)),
     "analizar_programa": lambda a: rea_tools.analizar_programa(a.get("ruta", ""), a.get("tipo", "resumen")),
+    "mirar_camara": lambda a: _mirar_camara(),
     "resumir_repositorio_github": lambda a: internet_tools.resumir_repositorio_github(a.get("repositorio") or a.get("url", "")),
     "crear_o_actualizar_nota": lambda a: knowledge_vault.crear_o_actualizar_nota(a["titulo"], a["contenido"], a.get("carpeta", "Proyectos"), a.get("tags", "")),
     "buscar_en_boveda": lambda a: knowledge_vault.buscar_en_boveda(a["consulta"]),
@@ -197,6 +218,7 @@ def obtener_herramientas_relevantes(prompt: str, es_local: bool) -> list | None:
         "youtube": {"resumir_video_youtube"},
         "rss": {"leer_noticias_rss"},
         "github": {"resumir_repositorio_github"},
+        "camara": {"mirar_camara"},
         "ingenieria_inversa": {"analizar_programa"},
         "memoria": {"guardar_recuerdo_importante", "buscar_en_memoria_profunda", "buscar_en_boveda"},
         "nota": {"crear_o_actualizar_nota", "registrar_en_bitacora_diaria", "buscar_en_boveda"},
@@ -221,6 +243,7 @@ def obtener_herramientas_relevantes(prompt: str, es_local: bool) -> list | None:
         "youtube": ("youtube", "youtu", "video", "vídeo"),
         "rss": ("rss", "atom", "feed", "canal de noticias"),
         "github": ("github", "repositorio", "repo"),
+        "camara": ("cámara", "camara", "me ves", "me estás viendo", "me estas viendo", "cómo me veo", "como me veo", "mi cara", "webcam"),
         "ingenieria_inversa": ("ingeniería inversa", "ingenieria inversa", "descompila", "desarma", "por dentro", "binario", "rea"),
         "memoria": ("recuerdo", "memoria", "preferencia", "aprendiste"),
         "nota": ("nota", "bóveda", "boveda", "diario", "obsidian"),

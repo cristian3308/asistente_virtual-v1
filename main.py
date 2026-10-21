@@ -59,9 +59,15 @@ def main() -> None:
             console.print(f"[yellow]Telegram no pudo iniciarse: {exc}[/yellow]")
     from core import presencia
 
+    ultimo_saludo = [0.0]
+
     def al_volver(texto: str) -> None:
         """Te recibe cuando vuelves al PC: en la consola, en la app del celular y con voz."""
+        import time as _time
         from core import estado, eventos
+        if _time.monotonic() - ultimo_saludo[0] < 300:
+            return   # ya te saludó el teclado o la cámara hace un momento
+        ultimo_saludo[0] = _time.monotonic()
         console.print(f"\n[bold cyan]🤖 {texto}[/bold cyan]")
         eventos.publicar("aviso", texto, origen="consola")
         estado.publicar("happy", duracion=3.0, detalle="¡Bienvenido!")
@@ -129,6 +135,31 @@ def main() -> None:
             turno_voz.release()
 
     despertador = despertar.Despertador(atender_llamada, ocupado=atendiendo.is_set)
+
+    # --- Cámara: reconocerte, ver tu ánimo y avisar si hay alguien que no conoce ---
+    from core import camara
+    camara_estado = {"fuera_desde": None, "aviso_desconocido": 0.0}
+
+    def al_cambiar_camara(evento: str, datos: dict) -> None:
+        import time as _time
+        from datetime import datetime, timedelta
+        from core import eventos
+        if evento == "te_fuiste":
+            camara_estado["fuera_desde"] = datetime.now()
+        elif evento == "llegaste":
+            desde = camara_estado["fuera_desde"]
+            camara_estado["fuera_desde"] = None
+            if desde and datetime.now() - desde >= timedelta(minutes=settings.SALUDO_TRAS_MINUTOS):
+                al_volver(presencia.resumen_de_regreso(desde))
+        elif evento == "desconocido" and _time.monotonic() - camara_estado["aviso_desconocido"] > 600:
+            camara_estado["aviso_desconocido"] = _time.monotonic()
+            texto = f"⚠️ Hay alguien frente a tu PC que no reconozco ({datos.get('desconocidos', 1)} persona(s)) y tú no estás."
+            eventos.publicar("aviso", texto, origen="consola", ok=False)
+            console.print(f"[bold red]{texto}[/bold red]")
+            from interfaces import notificaciones
+            notificaciones.enviar_telegram(texto)
+
+    camara_jarvis = camara.obtener(al_cambiar_camara)
     from memory import hindsight_memoria
     console.print(f"[dim]{hindsight_memoria.iniciar()}[/dim]")
     if settings.WEB:
@@ -137,7 +168,7 @@ def main() -> None:
     console.print(Panel.fit(
         "Asistente Híbrido — Windows · RTX 3050 · OpenCode Go / Ollama\n"
         f"Ollama: {'activo' if settings.ollama_activo() else 'apagado'} | Cloud: {'configurado' if settings.cloud_configurado() else 'sin API key'}\n"
-        "Comandos: /estado /limpiar /indexar <ruta> /recuerdos /habilidades /cargar_habilidades /ver <pregunta> /centinela <on|off> /benchmark /modelo <codigo|razonamiento|rapido|local|turbo> /tareas /tarea <objetivo> /cancelar /pausar /reactivar /programar <cambio> /revisar /aprobar /rechazar /deshacer /olvidar /auditoria /fallos /procedimientos /reiniciar /web /jarvis <on|off> /parar /reanudar /voz /voces /voz_probar /voz_usar /conversar /avatar /salir",
+        "Comandos: /estado /limpiar /indexar <ruta> /recuerdos /habilidades /cargar_habilidades /ver <pregunta> /centinela <on|off> /benchmark /modelo <codigo|razonamiento|rapido|local|turbo> /tareas /tarea <objetivo> /cancelar /pausar /reactivar /programar <cambio> /revisar /aprobar /rechazar /deshacer /olvidar /auditoria /fallos /procedimientos /reiniciar /web /jarvis <on|off> /camara <on|off|registrar|olvidar> /parar /reanudar /voz /voces /voz_probar /voz_usar /conversar /avatar /salir",
         title="🤖 Asistente Virtual Profundo", border_style="cyan",
     ))
     if settings.PALABRA_ACTIVACION:
@@ -278,6 +309,22 @@ def main() -> None:
                     precargar()
                     efectos.precargar_frases()
                 console.print(f"Voz {'activada: pulsa Enter para grabar y escribe /voz para desactivar.' if voice_enabled else 'desactivada.'}")
+                continue
+            if lower.startswith("/camara") or lower.startswith("/cámara"):
+                accion = lower.partition(" ")[2].strip() or "estado"
+                if accion == "on":
+                    console.print(camara_jarvis.encender())
+                elif accion == "off":
+                    console.print(camara_jarvis.apagar())
+                elif accion == "registrar":
+                    console.print("Mírame a la cámara unos segundos, con buena luz y solo tú en la imagen...")
+                    console.print(camara_jarvis.registrar())
+                elif accion == "olvidar":
+                    console.print(camara_jarvis.olvidar())
+                else:
+                    datos = camara_jarvis.ultimo
+                    console.print(("Encendida. " + (camara_jarvis.resumen() or "Aún sin datos.")) if camara_jarvis.encendida()
+                                  else "Apagada. /camara on para encenderla · /camara registrar para que te reconozca.")
                 continue
             if lower.startswith("/jarvis"):
                 if lower.endswith("off"):
@@ -479,6 +526,7 @@ def main() -> None:
                 motor_tareas.detener()
                 vigia_presencia.detener()
                 despertador.detener()
+                camara_jarvis.apagar()
                 hindsight_memoria.detener()
                 avatar.detener()
                 if settings.WEB:
@@ -506,6 +554,7 @@ def main() -> None:
     motor_tareas.detener()
     vigia_presencia.detener()
     despertador.detener()
+    camara_jarvis.apagar()
     hindsight_memoria.detener()
     avatar.detener()
     if settings.WEB:

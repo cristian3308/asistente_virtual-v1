@@ -236,6 +236,10 @@ class AssistantBrain:
                         "DATOS CONFIRMADOS SOBRE EL USUARIO (son correctos aunque antes en la conversación se haya "
                         "dicho otra cosa; úsalos con naturalidad y, si algo no está aquí, di que no lo sabes y pregúntale):\n"
                         + (perfil.resumen_para_modelo() or "- (aún nada)"))
+        from core import camara
+        vista = camara.resumen_actual()
+        if vista:
+            recordatorio += "\n" + vista
         reglas = perfil.reglas_para_modelo()
         if reglas:
             recordatorio += "\nREGLAS QUE CRISTHIAN TE DIO (cúmplelas siempre, salvo que contradigan la seguridad):\n" + reglas

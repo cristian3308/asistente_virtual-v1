@@ -148,10 +148,24 @@ instala habilidades, y todo queda en la auditoría con origen `web`. Desactíval
   busca recuerdos relacionados. Necesita Python 3.11+, así que va en su propio entorno:
   `py -3.12 -m venv .venv-hindsight` y `.venv-hindsight\Scripts\pip.exe install hindsight-all==1.0.0`.
   Arranca y se cierra solo con el asistente (registro en `data/hindsight.log`). Desactívala con `ASSISTANT_HINDSIGHT=0`.
-- **REA** (ingeniería inversa estática): "analiza por dentro el programa C:utapp.exe". Solo lee archivos
-  sin ejecutarlos y pide confirmación en la consola. Instalación: `cd externosea` y
+- **REA** (ingeniería inversa estática): "analiza por dentro el programa C:
+utapp.exe". Solo lee archivos
+  sin ejecutarlos y pide confirmación en la consola. Instalación: `cd externos
+ea` y
   `npm install --ignore-scripts rea-agents@6.7.0` (necesita Node.js 22.19+).
 - **Pestaña PC en la app del celular**: lo que pasa en el asistente en vivo y foto de la pantalla del PC.
+
+### Estilo JARVIS
+- **"Jarvis"** lo activa (siempre escuchando, todo en el PC); "Jarvis, abre Spotify" lo hace de corrido. Si
+  está hablando y le dices "Jarvis", se calla y te escucha. Tras responder espera 5 s tu siguiente frase.
+  Tecla rápida: **Ctrl+Alt+J**. `/jarvis off` para que deje de escuchar.
+- Dice "Enseguida." mientras piensa, hace un "bip" al escucharte y te saluda con un resumen cuando
+  vuelves al PC tras 20 min (`ASSISTANT_SALUDO=0` lo desactiva; `ASSISTANT_TRATO` cambia cómo te llama).
+- **Cámara** (opcional): `/camara on`, `/camara registrar` para que te reconozca, `/camara off`. Sabe si
+  estás frente al PC, estima tu ánimo y avisa por Telegram si hay alguien que no conoce. No guarda
+  imágenes: solo una huella numérica de tu cara (`/camara olvidar` la borra). Modelos (OpenCV Zoo) en
+  `data/modelos_camara`: `face_detection_yunet_2023mar.onnx`, `face_recognition_sface_2021dec.onnx` y
+  `facial_expression_recognition_mobilefacenet_2022july.onnx` de github.com/opencv/opencv_zoo.
 
 ## Seguridad
 - Las habilidades generadas se validan (lista blanca de módulos) y se ejecutan en un
