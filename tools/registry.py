@@ -9,7 +9,12 @@ import os
 import re
 import time
 
-from tools import contrasenas, dev_sec_tools, internet_tools, rea_tools, seguridad_tools, memory_tools, system_tools, vision_tools, web_tools, knowledge_vault, clipboard_tasks, browser_tools
+from tools import contrasenas, control_pc, dev_sec_tools, internet_tools, rea_tools, seguridad_tools, memory_tools, system_tools, vision_tools, web_tools, knowledge_vault, clipboard_tasks, browser_tools
+
+
+def _protocolos():
+    from core import protocolos
+    return protocolos
 
 
 def _mirar_camara() -> str:
@@ -59,6 +64,15 @@ TOOL_SCHEMAS = [
     _tool("resumir_video_youtube", "Resume un video de YouTube a partir de sus subtítulos (qué dice, puntos clave). Úsala con enlaces youtube.com o youtu.be.", {"url": {"type": "string"}, "pregunta": {"type": "string"}}, ["url"]),
     _tool("leer_noticias_rss", "Muestra las últimas noticias de un canal RSS o Atom.", {"url": {"type": "string"}, "cantidad": {"type": "integer"}}, ["url"]),
     _tool("analizar_programa", "Ingeniería inversa estática con REA: analiza un programa, app o paquete SIN ejecutarlo (tipo: resumen, javascript o electron). Pide confirmación.", {"ruta": {"type": "string"}, "tipo": {"type": "string", "enum": ["resumen", "javascript", "electron"]}}, ["ruta"]),
+    _tool("ejecutar_protocolo", "Activa un protocolo (escenario de varios pasos): estudio, descanso, seguridad, noche o uno creado por el usuario.", {"nombre": {"type": "string"}}, ["nombre"]),
+    _tool("listar_protocolos", "Lista los protocolos disponibles.", {}),
+    _tool("crear_protocolo", "Crea un protocolo nuevo a partir de una descripción (el usuario aprueba los pasos).", {"nombre": {"type": "string"}, "descripcion": {"type": "string"}}, ["nombre", "descripcion"]),
+    _tool("volumen", "Sube, baja o silencia el volumen del PC, o lo pone a un nivel de 0 a 100.", {"accion": {"type": "string", "enum": ["subir", "bajar", "silencio"]}, "nivel": {"type": "integer"}}),
+    _tool("multimedia", "Controla la música o el video que suena: pausa/reproducir, siguiente, anterior o detener.", {"accion": {"type": "string", "enum": ["pausa", "siguiente", "anterior", "detener"]}}, ["accion"]),
+    _tool("bloquear_pc", "Bloquea el PC (pantalla de inicio de sesión de Windows).", {}),
+    _tool("organizar_ventana", "Pone la ventana de una app a la izquierda o derecha de la pantalla, o la maximiza, minimiza o restaura.", {"posicion": {"type": "string", "enum": ["izquierda", "derecha", "maximizar", "minimizar", "restaurar"]}, "app": {"type": "string"}}, ["posicion"]),
+    _tool("ver_botones", "Lista los botones y opciones que se pueden presionar en la ventana de una app.", {"app": {"type": "string"}}),
+    _tool("presionar_boton", "Presiona un botón por su nombre en la ventana de una app (pide confirmación).", {"nombre": {"type": "string"}, "app": {"type": "string"}}, ["nombre"]),
     _tool("informe_seguridad_red", "Dice qué programas aceptan conexiones desde toda la red (puertos expuestos), sin contar Windows ni el asistente.", {}),
     _tool("cerrar_proceso", "Cierra un proceso por su PID (pide confirmación en la consola; nunca procesos de Windows ni del asistente).", {"pid": {"type": "integer"}}, ["pid"]),
     _tool("mirar_camara", "Mira por la cámara (si está encendida): si Cristhian está frente al PC, si lo reconoce y su expresión aproximada. Úsala para '¿me ves?', '¿cómo me veo?'.", {}),
@@ -105,6 +119,15 @@ FUNCTIONS = {
     "resumir_video_youtube": lambda a: internet_tools.resumir_video_youtube(a.get("url") or a.get("enlace", ""), a.get("pregunta", "")),
     "leer_noticias_rss": lambda a: internet_tools.leer_noticias_rss(a.get("url", ""), a.get("cantidad", 8)),
     "analizar_programa": lambda a: rea_tools.analizar_programa(a.get("ruta", ""), a.get("tipo", "resumen")),
+    "ejecutar_protocolo": lambda a: _protocolos().ejecutar(a.get("nombre", "")),
+    "listar_protocolos": lambda a: _protocolos().listar(),
+    "crear_protocolo": lambda a: _protocolos().crear(a.get("nombre", ""), a.get("descripcion", "")),
+    "volumen": lambda a: control_pc.volumen(a.get("accion", ""), a.get("nivel")),
+    "multimedia": lambda a: control_pc.multimedia(a.get("accion", "pausa")),
+    "bloquear_pc": lambda a: control_pc.bloquear_pc(),
+    "organizar_ventana": lambda a: control_pc.organizar_ventana(a.get("posicion", ""), a.get("app", "")),
+    "ver_botones": lambda a: control_pc.ver_botones(a.get("app", "")),
+    "presionar_boton": lambda a: control_pc.presionar_boton(a.get("nombre", ""), a.get("app", "")),
     "informe_seguridad_red": lambda a: seguridad_tools.informe_seguridad_red(),
     "cerrar_proceso": lambda a: seguridad_tools.cerrar_proceso(a.get("pid", "")),
     "mirar_camara": lambda a: _mirar_camara(),
@@ -223,6 +246,8 @@ def obtener_herramientas_relevantes(prompt: str, es_local: bool) -> list | None:
         "rss": {"leer_noticias_rss"},
         "github": {"resumir_repositorio_github"},
         "camara": {"mirar_camara"},
+        "protocolo": {"ejecutar_protocolo", "listar_protocolos", "crear_protocolo"},
+        "control": {"volumen", "multimedia", "bloquear_pc", "organizar_ventana", "ver_botones", "presionar_boton"},
         "seguridad": {"informe_seguridad_red", "cerrar_proceso", "auditar_puertos_locales"},
         "ingenieria_inversa": {"analizar_programa"},
         "memoria": {"guardar_recuerdo_importante", "buscar_en_memoria_profunda", "buscar_en_boveda"},
@@ -249,6 +274,10 @@ def obtener_herramientas_relevantes(prompt: str, es_local: bool) -> list | None:
         "rss": ("rss", "atom", "feed", "canal de noticias"),
         "github": ("github", "repositorio", "repo"),
         "seguridad": ("seguridad", "expuesto", "expuestos", "algo raro", "intruso", "cierra el proceso", "mata el proceso", "cerrar el proceso", "pid"),
+        "protocolo": ("protocolo", "protocolos", "modo estudio", "modo descanso"),
+        "control": ("volumen", "silencio", "silencia", "pausa", "canción", "cancion", "siguiente", "anterior",
+                    "bloquea", "izquierda", "derecha", "maximiza", "minimiza", "ventana", "botón", "boton", "botones",
+                    "presiona", "pulsa", "dale clic", "haz clic"),
         "camara": ("cámara", "camara", "me ves", "me estás viendo", "me estas viendo", "cómo me veo", "como me veo", "mi cara", "webcam"),
         "ingenieria_inversa": ("ingeniería inversa", "ingenieria inversa", "descompila", "desarma", "por dentro", "binario", "rea"),
         "memoria": ("recuerdo", "memoria", "preferencia", "aprendiste"),

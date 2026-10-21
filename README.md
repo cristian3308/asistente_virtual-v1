@@ -167,6 +167,13 @@ ea` y
   `data/modelos_camara`: `face_detection_yunet_2023mar.onnx`, `face_recognition_sface_2021dec.onnx` y
   `facial_expression_recognition_mobilefacenet_2022july.onnx` de github.com/opencv/opencv_zoo.
 
+- **Control del PC** al instante: "sube el volumen", "ponlo al 30", "pausa", "siguiente canción", "bloquea el
+  PC", "pon Chrome a la izquierda", "¿qué botones hay?" y "presiona Guardar" (con confirmación).
+- **Protocolos**: "activa protocolo estudio | descanso | seguridad | noche" o crea los tuyos ("crea un protocolo
+  gaming que…"); solo usan herramientas inofensivas y apruebas sus pasos antes de guardarlos.
+- **Centinela** (encendido por defecto): avisa de programas que se abren a tu red, batería baja, disco lleno o
+  un error que copiaste. `/centinela informe` muestra qué está expuesto en tu red.
+
 ## Seguridad
 - Las habilidades generadas se validan (lista blanca de módulos) y se ejecutan en un
   proceso aparte sin variables de entorno; instalarlas requiere tu confirmación.

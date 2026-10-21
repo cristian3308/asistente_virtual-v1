@@ -90,7 +90,42 @@ class AssistantBrain:
         re.IGNORECASE,
     )
 
+    # Reflejos de control del PC: instantáneos, sin modelo ("sube el volumen", "pausa", "bloquea el PC").
+    _REFLEJOS = (
+        (re.compile(r"^(?:pon|deja|ajusta|sube|baja)\s+(?:el\s+)?volumen\s+(?:al?|en)\s+(?P<nivel>\d{1,3})\s*%?$", re.I),
+         "volumen", lambda m: {"nivel": int(m.group("nivel"))}),
+        (re.compile(r"^(?:sube|subir|aumenta|subele|súbele)\s+(?:el\s+|un\s+poco\s+(?:el\s+)?)?volumen(?:\s+un\s+poco)?$", re.I),
+         "volumen", lambda m: {"accion": "subir"}),
+        (re.compile(r"^(?:baja|bajar|disminuye|bajale|bájale)\s+(?:el\s+|un\s+poco\s+(?:el\s+)?)?volumen(?:\s+un\s+poco)?$", re.I),
+         "volumen", lambda m: {"accion": "bajar"}),
+        (re.compile(r"^(?:silencio|silencia(?:r)?(?:\s+(?:el\s+)?(?:pc|audio|sonido))?|mute|quita\s+el\s+silencio)$", re.I),
+         "volumen", lambda m: {"accion": "silencio"}),
+        (re.compile(r"^(?:pausa|pausar|pon\s+pausa|para\s+la\s+m[uú]sica|det[eé]n\s+la\s+m[uú]sica|reanuda(?:r)?|"
+                    r"contin[uú]a\s+(?:con\s+)?la\s+m[uú]sica|play|dale\s+play)(?:\s+(?:la\s+)?m[uú]sica)?$", re.I),
+         "multimedia", lambda m: {"accion": "pausa"}),
+        (re.compile(r"^(?:siguiente(?:\s+canci[oó]n)?|pasa\s+(?:la|de)\s+canci[oó]n|salta\s+(?:la\s+)?canci[oó]n|otra\s+canci[oó]n)$", re.I),
+         "multimedia", lambda m: {"accion": "siguiente"}),
+        (re.compile(r"^(?:canci[oó]n\s+anterior|la\s+anterior|anterior\s+canci[oó]n|vuelve\s+a\s+la\s+anterior)$", re.I),
+         "multimedia", lambda m: {"accion": "anterior"}),
+        (re.compile(r"^bloquea(?:r)?\s+(?:el\s+|mi\s+)?(?:pc|computador|computadora|equipo|ordenador|port[aá]til)$", re.I),
+         "bloquear_pc", lambda m: {}),
+        (re.compile(r"^(?:activa(?:r)?|inicia(?:r)?|ejecuta(?:r)?|arranca|pon|entra\s+en|modo)\s+(?:el\s+)?"
+                    r"(?:(?:protocolo|modo)\s+)?(?P<nombre>[\w áéíóúñ]{3,40})$", re.I),
+         "ejecutar_protocolo", lambda m: {"nombre": m.group("nombre").strip()}),
+        (re.compile(r"^(?:qu[eé]|cu[aá]les)\s+protocolos\s+(?:tienes|hay|existen)|^(?:lista|muestra)(?:me)?\s+(?:los\s+)?protocolos$", re.I),
+         "listar_protocolos", lambda m: {}),
+    )
+
     def _orden_directa(self, prompt: str) -> tuple[str, dict] | None:
+        for patron, herramienta, argumentos in self._REFLEJOS:
+            coincide = patron.match(prompt.strip().rstrip("."))
+            if coincide and herramienta in FUNCTIONS:
+                if herramienta == "ejecutar_protocolo":
+                    # "pon música" o "activa el wifi" no son protocolos: solo si existe uno con ese nombre.
+                    from core import protocolos
+                    if protocolos.buscar(coincide.group("nombre")) is None:
+                        continue
+                return herramienta, argumentos(coincide)
         abrir = self._ORDEN_ABRIR.match(prompt)
         if abrir and "abrir_aplicacion" in FUNCTIONS:
             app = abrir.group("app").strip()
@@ -160,7 +195,8 @@ class AssistantBrain:
         directa = self._orden_directa(entender.para_comparar(prompt))
         if directa:
             name, arguments = directa
-            estado.publicar("working", motor="directo", detalle="Abriendo…" if name == "abrir_aplicacion" else "Buscando apps…")
+            estado.publicar("working", motor="directo", detalle={"abrir_aplicacion": "Abriendo…",
+                                                                 "listar_aplicaciones": "Buscando apps…"}.get(name, "Enseguida…"))
             answer = call_tool(name, json.dumps(arguments, ensure_ascii=False))
             ok = not answer.startswith(("No encontré", "Error", "La herramienta")) and "falló" not in answer
             estado.publicar("happy" if ok else "error", duracion=1.5)
