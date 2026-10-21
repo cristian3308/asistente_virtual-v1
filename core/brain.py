@@ -118,6 +118,10 @@ class AssistantBrain:
                 eventos.publicar("mensaje", prompt)   # visible en vivo desde la app del celular
                 respuesta, motor = self._ask(prompt, on_token)
                 eventos.publicar("respuesta", respuesta, motor=motor)
+                if motor != "Detenido":
+                    from core import auditoria
+                    from memory import hindsight_memoria
+                    hindsight_memoria.guardar_turno(prompt, respuesta, auditoria._origen.get())   # en segundo plano
                 return respuesta, motor
             except Exception as exc:
                 eventos.publicar("aviso", f"Error al responder: {type(exc).__name__}: {exc}")
@@ -236,6 +240,10 @@ class AssistantBrain:
         relevantes = self._recuerdos_relevantes(prompt)
         if relevantes:
             partes.append("\nRECUERDOS RELACIONADOS:\n" + relevantes)
+        from memory import hindsight_memoria
+        largo_plazo = hindsight_memoria.recordar(prompt)
+        if largo_plazo:
+            partes.append("\nMEMORIA DE LARGO PLAZO (conversaciones anteriores; úsala si viene al caso):\n" + largo_plazo)
         nuevos = getattr(self, "_nuevos_recuerdos", None)
         if nuevos:
             partes.append("\nACABAS DE GUARDAR: " + "; ".join(nuevos) + ". Confírmaselo en una frase.")

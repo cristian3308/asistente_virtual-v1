@@ -79,6 +79,11 @@ VOZ_MAXIMO = float(os.getenv("ASSISTANT_VOZ_MAXIMO", "60"))
 # App web/PWA (celular). Por defecto solo escucha en este PC; para el celular usa
 # `tailscale serve` (HTTPS privado) en vez de abrirla a la red. El token, si no está
 # en .env, se genera en data/web_token.txt.
+# Memoria de largo plazo Hindsight (servidor aparte en .venv-hindsight, Python 3.12, con Ollama).
+HINDSIGHT = os.getenv("ASSISTANT_HINDSIGHT", "1").strip().lower() not in {"0", "false", "no"}
+HINDSIGHT_PUERTO = int(os.getenv("ASSISTANT_HINDSIGHT_PUERTO", "8890"))
+HINDSIGHT_MODELO = os.getenv("ASSISTANT_HINDSIGHT_MODELO", "").strip()   # vacío = el modelo local del asistente
+HINDSIGHT_BANCO = os.getenv("ASSISTANT_HINDSIGHT_BANCO", "cristhian").strip() or "cristhian"
 WEB = os.getenv("ASSISTANT_WEB", "1").strip().lower() not in {"0", "false", "no"}
 WEB_HOST = os.getenv("ASSISTANT_WEB_HOST", "127.0.0.1").strip() or "127.0.0.1"
 WEB_PORT = int(os.getenv("ASSISTANT_WEB_PORT", "8780"))  # el 8765 es del avatar

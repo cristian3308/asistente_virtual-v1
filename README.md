@@ -140,6 +140,19 @@ El token está en `data/web_token.txt` (o pon el tuyo en `ASSISTANT_WEB_TOKEN`, 
 Tras 8 intentos fallidos se bloquea 15 minutos. Igual que Telegram, desde la app no ejecuta PowerShell ni
 instala habilidades, y todo queda en la auditoría con origen `web`. Desactívala con `ASSISTANT_WEB=0`.
 
+### Internet, memoria de largo plazo e ingeniería inversa
+- **Internet sin cuentas** (idea de Agent Reach): "resúmeme este video <enlace de YouTube>" (por sus
+  subtítulos), "léeme las noticias de <canal RSS>", "qué es github.com/usuario/proyecto" y lectura limpia de
+  páginas. Nunca entra a tu red local ni usa tus cookies.
+- **Memoria Hindsight** (local, con Ollama): guarda cada conversación en segundo plano y antes de responder
+  busca recuerdos relacionados. Necesita Python 3.11+, así que va en su propio entorno:
+  `py -3.12 -m venv .venv-hindsight` y `.venv-hindsight\Scripts\pip.exe install hindsight-all==1.0.0`.
+  Arranca y se cierra solo con el asistente (registro en `data/hindsight.log`). Desactívala con `ASSISTANT_HINDSIGHT=0`.
+- **REA** (ingeniería inversa estática): "analiza por dentro el programa C:utapp.exe". Solo lee archivos
+  sin ejecutarlos y pide confirmación en la consola. Instalación: `cd externosea` y
+  `npm install --ignore-scripts rea-agents@6.7.0` (necesita Node.js 22.19+).
+- **Pestaña PC en la app del celular**: lo que pasa en el asistente en vivo y foto de la pantalla del PC.
+
 ## Seguridad
 - Las habilidades generadas se validan (lista blanca de módulos) y se ejecutan en un
   proceso aparte sin variables de entorno; instalarlas requiere tu confirmación.

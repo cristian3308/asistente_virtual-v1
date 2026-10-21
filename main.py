@@ -57,6 +57,8 @@ def main() -> None:
             console.print("[dim]Conectando con Telegram...[/dim]")
         except Exception as exc:
             console.print(f"[yellow]Telegram no pudo iniciarse: {exc}[/yellow]")
+    from memory import hindsight_memoria
+    console.print(f"[dim]{hindsight_memoria.iniciar()}[/dim]")
     if settings.WEB:
         from interfaces import web_app
         console.print(f"[dim]{web_app.iniciar(brain)}[/dim]")
@@ -378,6 +380,7 @@ def main() -> None:
                 # iniciar_asistente.bat vuelve a abrir el asistente al recibir el código 3.
                 console.print("[cyan]Reiniciando para cargar los cambios...[/cyan]")
                 motor_tareas.detener()
+                hindsight_memoria.detener()
                 avatar.detener()
                 if settings.WEB:
                     from interfaces import web_app
@@ -402,6 +405,7 @@ def main() -> None:
         except (KeyboardInterrupt, EOFError):
             break
     motor_tareas.detener()
+    hindsight_memoria.detener()
     avatar.detener()
     if settings.WEB:
         from interfaces import web_app
