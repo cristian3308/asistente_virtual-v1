@@ -194,10 +194,13 @@ class SentenceSpeaker:
     SINTESIS_EN_PARALELO = 3
     PRIMER_TROZO_MINIMO = 25   # caracteres antes de poder cortar en una coma
 
-    def __init__(self, sintetizar=None) -> None:
+    ESPERA_ANTES_DE_RELLENO = 0.8   # si la primera frase tarda más, dice "Enseguida." para no quedarse callado
+
+    def __init__(self, sintetizar=None, frase_de_espera=None) -> None:
         from concurrent.futures import ThreadPoolExecutor
         import pygame  # noqa: F401  la primera importación tarda ~1 s: mejor ahora que antes de la primera frase
 
+        self._frase_de_espera = frase_de_espera   # función que devuelve la ruta de un audio ya grabado, o None
         self._sintetizar = sintetizar or _sintetizar
         self._pool = ThreadPoolExecutor(self.SINTESIS_EN_PARALELO, thread_name_prefix="tts-sintesis")
         self._audio: queue.Queue = queue.Queue()   # futuros en el orden en que se dicen
@@ -220,6 +223,7 @@ class SentenceSpeaker:
                 pygame.mixer.init()
         except Exception:
             pass
+        self._rellenar_si_tarda()
         while True:
             futuro = self._audio.get()
             if futuro is None:
@@ -240,6 +244,38 @@ class SentenceSpeaker:
                 pass
             finally:
                 shutil.rmtree(path.parent, ignore_errors=True)
+
+    def _rellenar_si_tarda(self) -> None:
+        """Si la primera frase no está lista a tiempo, suena una frase de espera ya grabada."""
+        if self._frase_de_espera is None:
+            return
+        limite = time.monotonic() + self.ESPERA_ANTES_DE_RELLENO
+        try:
+            primero = self._audio.get(timeout=self.ESPERA_ANTES_DE_RELLENO)
+        except queue.Empty:
+            primero = ...
+        # Se devuelve a la cabeza de la cola para que el bucle normal lo reproduzca.
+        if primero is not ...:
+            with self._audio.mutex:
+                self._audio.queue.appendleft(primero)
+                self._audio.unfinished_tasks += 1
+                self._audio.not_empty.notify()
+            if primero is None or (primero.done() or self._esperar(primero, limite - time.monotonic())):
+                return
+        ruta = self._frase_de_espera()
+        if ruta is not None:
+            try:
+                self._reproducir(ruta)   # archivo de la caché: no se borra
+            except Exception:
+                pass
+
+    @staticmethod
+    def _esperar(futuro, segundos: float) -> bool:
+        try:
+            futuro.result(timeout=max(0.0, segundos))
+            return True
+        except Exception:
+            return futuro.done()
 
     @staticmethod
     def _reproducir(path: Path) -> None:

@@ -53,6 +53,13 @@ USER_NAME = os.getenv("ASSISTANT_USER_NAME", "Cristhian").strip() or "Cristhian"
 FORGE_MODELS = [m.strip() for m in os.getenv("ASSISTANT_FORGE_MODELS", "minimax-m3,kimi-k2.7-code").split(",") if m.strip()]
 # Si el modelo local no puede resolver un turno, se repite automáticamente en la nube.
 AUTO_ESCALATE = os.getenv("ASSISTANT_AUTO_ESCALATE", "1").strip().lower() not in {"0", "false", "no"}
+# Personalidad JARVIS: cómo te llama y si te saluda al volver al PC tras un rato fuera.
+TRATO = os.getenv(
+    "ASSISTANT_TRATO",
+    f"Llama al usuario {USER_NAME} y, de vez en cuando, 'señor'.",
+).strip()
+SALUDO_AL_VOLVER = os.getenv("ASSISTANT_SALUDO", "1").strip().lower() not in {"0", "false", "no"}
+SALUDO_TRAS_MINUTOS = float(os.getenv("ASSISTANT_SALUDO_MINUTOS", "20"))
 # Avatar flotante (robot-heads) al arrancar; se abre/cierra con /avatar.
 AVATAR = os.getenv("ASSISTANT_AVATAR", "1").strip().lower() not in {"0", "false", "no"}
 # Modelo de Faster-Whisper en CPU. Medición 2026-10-17 (voz + ruido, con pista y 8 hilos):

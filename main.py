@@ -57,6 +57,23 @@ def main() -> None:
             console.print("[dim]Conectando con Telegram...[/dim]")
         except Exception as exc:
             console.print(f"[yellow]Telegram no pudo iniciarse: {exc}[/yellow]")
+    from core import presencia
+
+    def al_volver(texto: str) -> None:
+        """Te recibe cuando vuelves al PC: en la consola, en la app del celular y con voz."""
+        from core import estado, eventos
+        console.print(f"\n[bold cyan]🤖 {texto}[/bold cyan]")
+        eventos.publicar("aviso", texto, origen="consola")
+        estado.publicar("happy", duracion=3.0, detalle="¡Bienvenido!")
+        try:
+            from voice.mouth_tts import hablar
+            hablar(texto)
+        except Exception:
+            pass
+
+    vigia_presencia = presencia.Presencia(al_volver)
+    if settings.SALUDO_AL_VOLVER:
+        vigia_presencia.iniciar()
     from memory import hindsight_memoria
     console.print(f"[dim]{hindsight_memoria.iniciar()}[/dim]")
     if settings.WEB:
@@ -76,7 +93,8 @@ def main() -> None:
         if voice_enabled:
             try:
                 from voice.mouth_tts import SentenceSpeaker
-                speaker = SentenceSpeaker()
+                from voice import efectos
+                speaker = SentenceSpeaker(frase_de_espera=efectos.frase_de_espera)
             except Exception:
                 speaker = None
 
@@ -115,14 +133,18 @@ def main() -> None:
         voice_enabled = True
         try:
             from voice.ear_stt import escuchar, precargar
+            from voice import efectos
             precargar()
+            efectos.precargar_frases()
             console.print(f"[green]Conversación activa. Habla; respondo cuando te calles "
                           f"{settings.VOZ_SILENCIO_FIN:g} s. Di 'salir' para terminar.[/green]")
             while True:
                 console.print("[dim]Escuchando...[/dim]")
+                efectos.sonido("escucha")
                 prompt = escuchar()
                 if not prompt:
                     continue
+                efectos.sonido("listo")
                 console.print(f"[green]Transcripción:[/green] {prompt}")
                 if prompt.strip().lower().strip(" .,!¡¿?") in {"salir", "terminar", "adiós", "adios", "para", "detente"}:
                     break
@@ -140,8 +162,11 @@ def main() -> None:
                 if voice_enabled:
                     try:
                         from voice.ear_stt import escuchar
+                        from voice import efectos
                         console.print("[dim]Escuchando... (termino cuando dejes de hablar)[/dim]")
+                        efectos.sonido("escucha")
                         prompt = escuchar()
+                        efectos.sonido("listo")
                         if not prompt:
                             console.print("[yellow]No se detectó voz.[/yellow]")
                             continue
@@ -183,12 +208,16 @@ def main() -> None:
             if lower.startswith("/voz_usar"):
                 from voice.mouth_tts import elegir_voz
                 console.print(elegir_voz(prompt.partition(" ")[2]))
+                from voice import efectos
+                efectos.precargar_frases()   # graba "Enseguida." y compañía con la voz nueva
                 continue
             if lower == "/voz":
                 voice_enabled = not voice_enabled
                 if voice_enabled:
                     from voice.ear_stt import precargar
+                    from voice import efectos
                     precargar()
+                    efectos.precargar_frases()
                 console.print(f"Voz {'activada: pulsa Enter para grabar y escribe /voz para desactivar.' if voice_enabled else 'desactivada.'}")
                 continue
             if lower == "/avatar":
@@ -380,6 +409,7 @@ def main() -> None:
                 # iniciar_asistente.bat vuelve a abrir el asistente al recibir el código 3.
                 console.print("[cyan]Reiniciando para cargar los cambios...[/cyan]")
                 motor_tareas.detener()
+                vigia_presencia.detener()
                 hindsight_memoria.detener()
                 avatar.detener()
                 if settings.WEB:
@@ -405,6 +435,7 @@ def main() -> None:
         except (KeyboardInterrupt, EOFError):
             break
     motor_tareas.detener()
+    vigia_presencia.detener()
     hindsight_memoria.detener()
     avatar.detener()
     if settings.WEB:
