@@ -121,7 +121,7 @@ class CerebroPublicaEstadosTests(unittest.TestCase):
         original = estado.publicar
         with patch.object(estado, "publicar", side_effect=lambda e, *a, **k: (vistos.append(e), original(e, *a, **k))), \
                 redirect_stdout(io.StringIO()):
-            brain.ask("hola")
+            brain.ask("cuéntame algo interesante")
         self.assertEqual(vistos[0], "thinking")
         self.assertIn("speaking", vistos)
         self.assertEqual(vistos[-1], "idle")

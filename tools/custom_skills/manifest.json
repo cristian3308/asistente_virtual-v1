@@ -47,7 +47,8 @@
     "file": "alarma_programada.py",
     "sha256": "21d1757b4d30cd6e343ec7de46f4b4f62b0fe5cfccffdc277db94c6d0fe767bb",
     "approved": false,
-    "nota": "Desactivada 2026-10-19: decía que la alarma sonaría pero no programa nada. Usa programar_recordatorio."
+    "nota": "Desactivada 2026-10-19: decía que la alarma sonaría pero no programa nada. Usa programar_recordatorio.",
+    "desactivada": true
   },
   {
     "name": "configurar_alarma",
@@ -55,6 +56,7 @@
     "file": "configurar_alarma.py",
     "sha256": "170777cafad4321a716da6577d274884b2dff26658cd55f7346acdf6d9db3464",
     "approved": false,
-    "nota": "Desactivada 2026-10-19: decía que la alarma sonaría pero no programa nada. Usa programar_recordatorio."
+    "nota": "Desactivada 2026-10-19: decía que la alarma sonaría pero no programa nada. Usa programar_recordatorio.",
+    "desactivada": true
   }
 ]

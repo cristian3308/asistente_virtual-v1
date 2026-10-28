@@ -307,6 +307,8 @@ def cargar_habilidades_guardadas() -> list[str]:
         try:
             code = path.read_text(encoding="utf-8")
             item = next((x for x in _manifest() if x.get("name") == name), {})
+            if item.get("desactivada"):
+                continue   # desactivada a propósito (p. ej. fingía hacer algo): ni se carga ni se pregunta
             digest = hashlib.sha256(code.encode("utf-8")).hexdigest()
             aprobada = str(item.get("sha256", "")).lower() if item.get("approved") is True else ""
             trusted = aprobada == digest

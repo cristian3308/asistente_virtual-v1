@@ -156,6 +156,9 @@ def main() -> None:
         except Exception as exc:
             console.print(f"[red]Error en el turno por voz: {exc}[/red]")
         finally:
+            from core import estado
+            if estado.actual().get("estado") in {"thinking", "listening"}:
+                estado.publicar("idle")
             atendiendo.clear()
             turno_voz.release()
 
@@ -188,7 +191,16 @@ def main() -> None:
 
     camara_jarvis = camara.obtener(al_cambiar_camara)
     from memory import hindsight_memoria
-    console.print(f"[dim]{hindsight_memoria.iniciar()}[/dim]")
+    # Primero el modelo local (lo que usas al hablarle); Hindsight arranca cuando termine.
+    from core import calentar
+
+    def arrancar_hindsight() -> None:
+        mensaje = hindsight_memoria.iniciar()
+        if "no está instalado" not in mensaje and "desactivado" not in mensaje:
+            console.print(f"[dim]{mensaje}[/dim]")
+
+    calentar.en_segundo_plano(despues=arrancar_hindsight)
+    console.print("[dim]Cargando el modelo local en segundo plano (la primera respuesta será rápida)...[/dim]")
     if settings.WEB:
         from interfaces import web_app
         console.print(f"[dim]{web_app.iniciar(brain)}[/dim]")

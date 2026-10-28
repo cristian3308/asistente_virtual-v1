@@ -147,7 +147,10 @@ def escuchar(silencio_fin: float | None = None, espera_inicio: float | None = No
         estado.publicar("idle")
         return ""
     estado.publicar("thinking", detalle="Transcribiendo…")
-    return transcribir_audio(recortar_voz(audio, primera, ultima))
+    texto = transcribir_audio(recortar_voz(audio, primera, ultima))
+    if not texto:
+        estado.publicar("idle")   # era ruido: el avatar no se queda en "Transcribiendo…"
+    return texto
 
 
 def transcribir_archivo(path: str | Path) -> str:

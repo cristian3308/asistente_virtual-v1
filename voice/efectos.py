@@ -63,7 +63,10 @@ def sonido(nombre: str, esperar: bool = False) -> None:
 
 
 def _ruta(frase: str, voz: str) -> Path:
-    clave = hashlib.sha1(frase.encode("utf-8")).hexdigest()[:12]
+    """La grabación depende de la voz real (id, velocidad y tono): si cambia, se vuelve a grabar."""
+    from voice import mouth_tts
+    parametros = "|".join(mouth_tts._parametros_voz(voz))
+    clave = hashlib.sha1(f"{frase}|{parametros}".encode("utf-8")).hexdigest()[:12]
     return CACHE / voz / f"{clave}.mp3"
 
 

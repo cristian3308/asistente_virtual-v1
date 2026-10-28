@@ -105,6 +105,27 @@ class AssistantBrain:
         "analizar_programa": "Analizando el programa…", "ver_botones": "Leyendo la ventana…",
     }
 
+    # Un saludo a secas no necesita modelo: responde al instante y con el estilo de Jarvis
+    # (el modelo pequeño repetía "¡Hola! ¿Cómo puedo ayudarte hoy?" copiado del historial).
+    _SOLO_SALUDO = re.compile(
+        r"^(?:(?:hola|hey|ey|buenas|buen\s+d[ií]a|buenos\s+d[ií]as|buenas\s+(?:tardes|noches)|qu[eé]\s+(?:tal|m[aá]s|hubo))"
+        r"[\s,.!¡¿?]*)+(?:jarvis)?[\s,.!¡¿?]*$", re.IGNORECASE)
+
+    @classmethod
+    def _saludo(cls, prompt: str) -> str | None:
+        if not cls._SOLO_SALUDO.match(prompt or ""):
+            return None
+        import random
+        hora = datetime.now().hour
+        momento = "Buenos días" if 5 <= hora < 12 else "Buenas tardes" if 12 <= hora < 19 else "Buenas noches"
+        nombre = settings.USER_NAME
+        return random.choice([
+            f"{momento}, {nombre}. ¿En qué le ayudo?",
+            f"{momento}, señor. A su disposición.",
+            f"{momento}, {nombre}. Todo en orden por aquí. ¿Qué necesita?",
+            f"{momento}. Aquí estoy, {nombre}. ¿Qué hacemos?",
+        ])
+
     # Reflejos de control del PC: instantáneos, sin modelo ("sube el volumen", "pausa", "bloquea el PC").
     _REFLEJOS = (
         (re.compile(r"^(?:pon|deja|ajusta|sube|baja)\s+(?:el\s+)?volumen\s+(?:al?|en)\s+(?P<nivel>\d{1,3})\s*%?$", re.I),
@@ -217,21 +238,25 @@ class AssistantBrain:
             estado.publicar("happy" if ok else "error", duracion=1.5)
             estado.publicar("idle")
             self._show_tool_result(name, answer)
+            if on_token:
+                on_token(answer)   # también se dice en voz alta ("Hecho: volumen arriba")
             self._last_turn_cloud = False
             self.history.append({"role": "assistant", "content": answer})
             self.memory.save("assistant", answer, f"Directo · {name}")
             return answer, f"Directo · {name}"
-        dato = perfil.responder_pregunta(prompt)
+        dato, motor_dato = perfil.responder_pregunta(prompt), "Memoria"
+        if dato and saludo:
+            dato = "¡Hola! " + dato
+        if not dato:
+            dato, motor_dato = self._saludo(prompt), "Directo · saludo"
         if dato:
             # "¿Cómo me llamo?" sale de la memoria confirmada, no de lo que el modelo crea recordar.
-            if saludo:
-                dato = "¡Hola! " + dato
             if on_token:
                 on_token(dato)
             self._last_turn_cloud = False
             self.history.append({"role": "assistant", "content": dato})
-            self.memory.save("assistant", dato, "Memoria")
-            return dato, "Memoria"
+            self.memory.save("assistant", dato, motor_dato)
+            return dato, motor_dato
         estado.publicar("thinking", motor="local")
         self._proactive_system_checks(prompt)
         # Compartido entre intentos: una herramienta ya ejecutada (abrir una app,

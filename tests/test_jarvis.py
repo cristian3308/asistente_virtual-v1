@@ -103,3 +103,71 @@ class PresenciaTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ArreglosOctubreTests(unittest.TestCase):
+    def test_saludo_sin_modelo_y_al_estilo_jarvis(self) -> None:
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+        from core.brain import AssistantBrain
+        brain = AssistantBrain.__new__(AssistantBrain)
+        brain.router = SimpleNamespace(stream=MagicMock(side_effect=AssertionError("no debe usar el modelo")))
+        brain.memory = MagicMock()
+        brain.history = [{"role": "system", "content": "reglas"}]
+        respuesta, motor = brain.ask("Hola, hola, hola.")
+        self.assertEqual(motor, "Directo · saludo")
+        self.assertRegex(respuesta, r"^(Buenos días|Buenas tardes|Buenas noches)")
+        self.assertIsNone(AssistantBrain._saludo("hola, abre spotify"))
+
+    def test_jarvis_habla_en_espanol_nativo(self) -> None:
+        self.assertTrue(mouth_tts.VOCES["jarvis"][0].startswith("es-"))
+
+    def test_frases_grabadas_dependen_de_la_voz_real(self) -> None:
+        with patch.dict(mouth_tts.VOCES, {"jarvis": ("es-ES-AlvaroNeural", "+2%", "-6Hz", "")}):
+            nueva = efectos._ruta("Enseguida.", "jarvis")
+        with patch.dict(mouth_tts.VOCES, {"jarvis": ("en-US-AndrewMultilingualNeural", "+8%", "-2Hz", "")}):
+            vieja = efectos._ruta("Enseguida.", "jarvis")
+        self.assertNotEqual(nueva, vieja)
+
+    def test_habilidades_desactivadas_ni_cargan_ni_preguntan(self) -> None:
+        import json
+        from core import self_coder
+        tmp = Path(tempfile.mkdtemp(prefix="desactivada_"))
+        try:
+            (tmp / "falsa.py").write_text("def falsa() -> str:\n    return 'sonará'\n", encoding="utf-8")
+            (tmp / "manifest.json").write_text(json.dumps([{"name": "falsa", "approved": False, "desactivada": True}]),
+                                               encoding="utf-8")
+            with patch.object(self_coder, "CUSTOM_DIR", tmp), patch.object(self_coder, "MANIFEST_PATH", tmp / "manifest.json"), \
+                 patch.object(self_coder.Confirm, "ask", side_effect=AssertionError("no debe preguntar")):
+                self.assertEqual(self_coder.cargar_habilidades_guardadas(), [])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_calentar_carga_el_modelo_y_luego_arranca_lo_demas(self) -> None:
+        from core import calentar
+        orden = []
+        with patch.object(calentar.settings, "ollama_activo", return_value=True), \
+             patch.object(calentar, "cargar_modelo_local", side_effect=lambda: orden.append("modelo") or 1.0):
+            calentar._listo.clear()
+            calentar.en_segundo_plano(despues=lambda: orden.append("hindsight"))
+            self.assertTrue(calentar.esperar(5))
+            time.sleep(0.1)
+        self.assertEqual(orden, ["modelo", "hindsight"])
+
+
+class OrdenDirectaEnVozTests(unittest.TestCase):
+    def test_las_ordenes_directas_tambien_se_dicen(self) -> None:
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+        from core.brain import AssistantBrain
+        from tools import registry
+        brain = AssistantBrain.__new__(AssistantBrain)
+        brain.router = SimpleNamespace(stream=MagicMock(side_effect=AssertionError("no debe usar el modelo")))
+        brain.memory = MagicMock()
+        brain.history = [{"role": "system", "content": "reglas"}]
+        dicho = []
+        import io
+        from contextlib import redirect_stdout
+        with patch.dict(registry.FUNCTIONS, {"volumen": lambda a: "Volumen arriba."}), redirect_stdout(io.StringIO()):
+            brain.ask("sube el volumen", on_token=dicho.append)
+        self.assertEqual(dicho, ["Volumen arriba."])

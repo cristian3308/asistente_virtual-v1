@@ -34,11 +34,17 @@ VOCES: dict[str, tuple[str, str, str, str]] = {
     # Medición 2026-10-19: con -5 % las JARVIS hablaban a ~2,8 palabras/s (lento); con +8 % quedan
     # en ~3,3, el ritmo de una conversación natural.
     "colombiano": ("es-CO-GonzaloNeural", "+4%", "+0Hz", "Español de Colombia (la de siempre)"),
-    "jarvis": ("en-US-AndrewMultilingualNeural", "+8%", "-2Hz",
-               "Estilo JARVIS: grave y calmado; habla español con acento inglés"),
+    # Medición 2026-10-27: las voces multilingües en inglés adivinan el idioma por el texto y con frases
+    # cortas fallan ("Enseguida." sonaba en inglés, "Se ve, señor" en italiano). JARVIS usa voces
+    # nativas en español, que siempre pronuncian bien, con tono más grave y sereno.
+    "jarvis": ("es-ES-AlvaroNeural", "+2%", "-6Hz", "Estilo JARVIS en español de España: grave y sereno"),
+    "jarvis_mexico": ("es-MX-JorgeNeural", "+2%", "-6Hz", "Estilo JARVIS en español de México"),
+    "jarvis_latino": ("es-US-AlonsoNeural", "+2%", "-5Hz", "Estilo JARVIS en español latino neutro"),
+    "jarvis_ingles": ("en-US-AndrewMultilingualNeural", "+8%", "-2Hz",
+                      "Acento inglés (ojo: con frases cortas a veces suena en inglés)"),
     "jarvis_britanico": ("en-GB-RyanNeural", "+12%", "-2Hz",
-                         "Británico puro, lo más parecido a 'Brian UK'; ideal si le hablas en inglés"),
-    "jarvis_brian": ("en-US-BrianMultilingualNeural", "+12%", "-2Hz", "Otra variante JARVIS multilingüe, algo más cálida"),
+                         "Británico puro: solo si le hablas en inglés (el español lo pronuncia en inglés)"),
+    "jarvis_brian": ("en-US-BrianMultilingualNeural", "+12%", "-2Hz", "Multilingüe con acento inglés, algo más cálida"),
     "britanico": ("en-GB-ThomasNeural", "+0%", "+0Hz", "Británico, tono natural"),
     "espanol": ("es-ES-AlvaroNeural", "+0%", "+0Hz", "Español de España"),
     "mexicano": ("es-MX-JorgeNeural", "+0%", "+0Hz", "Español de México"),
@@ -88,8 +94,25 @@ def _parametros_voz(nombre: str | None = None) -> tuple[str, str, str]:
     return nombre, "+0%", "+0Hz"
 
 
+def _idioma_espanol_en_multilingues() -> None:
+    """edge-tts marca todo como inglés (xml:lang='en-US'); en voces multilingües eso empuja al inglés.
+    Para ellas se declara español: ayuda con frases medianas (las muy cortas pueden seguir fallando)."""
+    import edge_tts.communicate as comunicacion
+    if getattr(comunicacion.mkssml, "_espanol", False):
+        return
+    original = comunicacion.mkssml
+
+    def mkssml(tc, texto):
+        ssml = original(tc, texto)
+        return ssml.replace("xml:lang='en-US'", "xml:lang='es-ES'", 1) if "Multilingual" in tc.voice else ssml
+
+    mkssml._espanol = True
+    comunicacion.mkssml = mkssml
+
+
 async def _speak_async(text: str, output: Path, voz: str | None = None) -> None:
     import edge_tts
+    _idioma_espanol_en_multilingues()
     nombre, velocidad, tono = _parametros_voz(voz)
     await edge_tts.Communicate(text, voice=nombre, rate=velocidad, pitch=tono).save(str(output))
 
@@ -224,7 +247,7 @@ class SentenceSpeaker:
     SINTESIS_EN_PARALELO = 3
     PRIMER_TROZO_MINIMO = 25   # caracteres antes de poder cortar en una coma
 
-    ESPERA_ANTES_DE_RELLENO = 0.8   # si la primera frase tarda más, dice "Enseguida." para no quedarse callado
+    ESPERA_ANTES_DE_RELLENO = 1.8   # si la primera frase tarda más, dice "Enseguida." (las voces en español tardan ~1,2 s)
 
     def __init__(self, sintetizar=None, frase_de_espera=None) -> None:
         from concurrent.futures import ThreadPoolExecutor
